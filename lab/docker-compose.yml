@@ -1,0 +1,27 @@
+services:
+  blue:
+    build: ./services/api
+    environment: [APP_COLOR=blue,FAIL_MODE=0]
+    ports: ["8081:8080"]
+  green:
+    build: ./services/api
+    environment: [APP_COLOR=green,FAIL_MODE=1]
+    ports: ["8082:8080"]
+  redis:
+    image: redis:7-alpine
+  mongo:
+    image: mongo:7
+  gateway:
+    build: ./services/gateway
+    environment: [BLUE_URL=http://blue:8080, GREEN_URL=http://green:8080]
+    ports: ["9090:9090"]
+    depends_on: [blue, green]
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    volumes: ["./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro"]
+    ports: ["9091:9090"]
+    depends_on: [blue, green]
+  reproducer:
+    build: ./services/reproducer
+    profiles: [tools]
+    depends_on: [blue, green]
