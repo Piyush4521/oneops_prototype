@@ -1,7 +1,7 @@
 const GITHUB_API = 'https://api.github.com';
 
 const componentPathMap = {
-  RequestMiddleware: 'request_middleware.dart',
+  GoogleTranslate: 'GoogleTranslate.tsx',
 };
 
 export class GitHubConfigError extends Error {}

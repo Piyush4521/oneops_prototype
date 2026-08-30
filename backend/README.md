@@ -29,14 +29,14 @@ Required environment variables:
 
 ```bash
 ONEOPS_GITHUB_TOKEN=github_pat_or_token_with_repo_read_access
-ONEOPS_GITHUB_REPOSITORY=owner/repository
+ONEOPS_GITHUB_REPOSITORY=Piyush4521/OneMeal
 ```
 
 Optional:
 
 ```bash
 ONEOPS_GITHUB_REF=main
-ONEOPS_GITHUB_PATH_PREFIX=lib/src
+ONEOPS_GITHUB_PATH_PREFIX=
 ```
 
 Endpoint:
@@ -46,9 +46,9 @@ POST /api/incidents/code-context
 content-type: application/json
 
 {
-  "component": "RequestMiddleware",
-  "path": "request_middleware.dart"
+  "component": "GoogleTranslate",
+  "path": "GoogleTranslate.tsx"
 }
 ```
 
-The backend maps `RequestMiddleware` to `request_middleware.dart` for the MVP and returns decoded file content plus repository, ref, path, commit SHA, and source metadata. It does not create PRs or write to GitHub.
+The backend maps `GoogleTranslate` to `src/components/GoogleTranslate.tsx` for the MVP and returns decoded file content plus repository, ref, path, commit SHA, and source metadata. It does not create PRs or write to GitHub.

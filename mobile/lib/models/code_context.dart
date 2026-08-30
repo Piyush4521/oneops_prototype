@@ -15,19 +15,19 @@ class CodeContextRequest {
   final List<String> evidence;
   final List<String> scope;
 
-  static const requestMiddleware = CodeContextRequest(
-    component: 'RequestMiddleware',
-    fileName: 'request_middleware.dart',
-    reason: 'Runtime exception follows the Green deployment dependency change.',
+  static const googleTranslate = CodeContextRequest(
+    component: 'GoogleTranslate',
+    fileName: 'GoogleTranslate.tsx',
+    reason: 'Translation widget failure follows the Green deployment dependency change.',
     evidence: [
-      'Runtime error: TypeError in request middleware',
+      'Runtime error: Google Translate widget failed to initialize',
       'Deployment correlation: Green promoted before error spike',
-      'Dependency change: request path configuration changed',
+      'Dependency change: translation script loading behavior changed',
     ],
     scope: [
-      'request parsing',
-      'dependency configuration',
-      'middleware error handling',
+      'third-party script loading',
+      'widget initialization',
+      'component cleanup',
     ],
   );
 }
@@ -59,7 +59,7 @@ class CodeContextResult {
 
   factory CodeContextResult.fromJson(Map<String, dynamic> json, DateTime receivedAt) {
     return CodeContextResult(
-      fileName: _text(json['path'], CodeContextRequest.requestMiddleware.fileName).split('/').last,
+      fileName: _text(json['path'], CodeContextRequest.googleTranslate.fileName).split('/').last,
       sourceSummary: 'Read-only source context retrieved for the requested component.',
       sourceOrigin: _text(json['source'], 'GitHub'),
       receivedAt: receivedAt,
@@ -105,7 +105,7 @@ class CodeContextState {
 
   static const initial = CodeContextState(
     status: CodeContextStatus.idle,
-    request: CodeContextRequest.requestMiddleware,
+    request: CodeContextRequest.googleTranslate,
   );
 }
 
