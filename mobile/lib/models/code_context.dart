@@ -71,6 +71,17 @@ class CodeContextResult {
       content: _text(json['content'], ''),
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'repository': repository,
+      'path': path,
+      'ref': ref,
+      'commit': commit,
+      'content': content,
+      'source': source,
+    };
+  }
 }
 
 class CodeContextState {

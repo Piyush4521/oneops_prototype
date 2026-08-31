@@ -75,6 +75,22 @@ class Incident {
           .toList(),
     );
   }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id': id,
+      'status': status,
+      'severity': severity,
+      'confidence': confidence,
+      'summary': summary,
+      'createdAt': createdAt,
+      'mttr': mttr,
+      'evidence': evidence,
+      'hypothesis': hypothesis,
+      'experiment': experiment,
+      'history': history.map((event) => event.toJson()).toList(),
+    };
+  }
 }
 
 class WorkflowStep {
@@ -111,6 +127,13 @@ class HistoryEvent {
       at: _text(json['at'], '-'),
       event: _text(json['event'], 'Workflow event'),
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'at': at,
+      'event': event,
+    };
   }
 }
 
