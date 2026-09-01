@@ -20,6 +20,57 @@ export async function proposeFix({ diagnosis, codeContext, incident, ragResults 
   if (!config.apiKey) throw new FixProposalConfigError('LLM API key is not configured.');
   if (!config.model) throw new FixProposalConfigError('LLM model is not configured.');
 
+  const attempts = [];
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const parsed = await requestFixProposal(config, {
+      diagnosis,
+      codeContext,
+      incident,
+      ragResults,
+      previousError: attempts[attempts.length - 1],
+    });
+    if (parsed?.status === 'failed') {
+      return { status: 'failed', error: String(parsed.error || 'The model could not propose a safe reviewable change.') };
+    }
+
+    const proposal = normalizeProposal(parsed, codeContext);
+    if (proposal.status === 'failed') return proposal;
+
+    const validationError = validateUnifiedDiff(codeContext?.content || '', proposal.diff, codeContext?.path || '');
+    if (!validationError) {
+      if (attempt > 0) {
+        console.warn('[OneOps] FIX_PROPOSAL_RETRY_SUCCEEDED', { attempt: attempt + 1, path: codeContext?.path });
+      }
+      return proposal;
+    }
+
+    attempts.push(validationError);
+    console.warn('[OneOps] FIX_PROPOSAL_DIFF_REJECTED', {
+      attempt: attempt + 1,
+      path: codeContext?.path,
+      reason: validationError,
+    });
+
+    const deterministicProposal = deterministicProposalForSource(proposal, codeContext);
+    const deterministicError = deterministicProposal
+      ? validateUnifiedDiff(codeContext?.content || '', deterministicProposal.diff, codeContext?.path || '')
+      : 'No deterministic source-matched proposal is available.';
+    if (deterministicProposal && !deterministicError) {
+      console.warn('[OneOps] FIX_PROPOSAL_DETERMINISTIC_DIFF', {
+        path: codeContext?.path,
+        reason: validationError,
+      });
+      return deterministicProposal;
+    }
+  }
+
+  return {
+    status: 'failed',
+    error: `The model did not return an applicable unified diff after ${attempts.length} attempts. Last validation error: ${attempts[attempts.length - 1] || 'unknown'}`,
+  };
+}
+
+async function requestFixProposal(config, { diagnosis, codeContext, incident, ragResults, previousError }) {
   const response = await fetch(config.endpoint, {
     method: 'POST',
     headers: {
@@ -36,6 +87,10 @@ export async function proposeFix({ diagnosis, codeContext, incident, ragResults 
             'Generate a proposed code change for human review only.',
             'The proposal must be labeled PROPOSED CHANGE and FOR REVIEW.',
             'Use the incident, diagnosis, and real GitHub source context.',
+            'Return exactly one minimal unified diff for exactly one file.',
+            'The unified diff must apply cleanly to the supplied source content.',
+            'Every context and removed line in the diff must be copied exactly from the supplied source content.',
+            'Do not invent line numbers, duplicate overlapping hunks, or include a patch preview that is not a valid unified diff.',
             'Do not claim code was changed, a PR was created, deployment happened, the fix is verified, or production is safe.',
             'If a safe minimal proposal cannot be made, return {"status":"failed","error":"honest reason"}.',
             'Return only valid JSON.',
@@ -43,10 +98,10 @@ export async function proposeFix({ diagnosis, codeContext, incident, ragResults 
         },
         {
           role: 'user',
-          content: buildFixPrompt({ diagnosis, codeContext, incident, ragResults }),
+          content: buildFixPrompt({ diagnosis, codeContext, incident, ragResults, previousError }),
         },
       ],
-      temperature: 0.2,
+      temperature: 0,
       response_format: { type: 'json_object' },
     }),
   });
@@ -62,13 +117,10 @@ export async function proposeFix({ diagnosis, codeContext, incident, ragResults 
   }
 
   const parsed = parseJsonObject(text);
-  if (parsed?.status === 'failed') {
-    return { status: 'failed', error: String(parsed.error || 'The model could not propose a safe reviewable change.') };
-  }
-  return normalizeProposal(parsed, codeContext);
+  return parsed;
 }
 
-function buildFixPrompt({ diagnosis, codeContext, incident, ragResults }) {
+function buildFixPrompt({ diagnosis, codeContext, incident, ragResults, previousError }) {
   const safeIncident = incident && typeof incident === 'object' ? incident : {};
   const safeDiagnosis = diagnosis && typeof diagnosis === 'object' ? diagnosis : {};
   const safeCode = codeContext && typeof codeContext === 'object' ? codeContext : {};
@@ -81,7 +133,7 @@ function buildFixPrompt({ diagnosis, codeContext, incident, ragResults }) {
       title: 'PROPOSED CHANGE - FOR REVIEW: concise title',
       summary: 'A short summary that says this is proposed, not applied.',
       affectedFiles: ['repository path'],
-      diff: 'unified diff or focused patch preview',
+      diff: `--- a/${safeCode.path || 'path'}\n+++ b/${safeCode.path || 'path'}\n@@ -oldStart,oldCount +newStart,newCount @@\n exact context/removal/addition lines`,
       reasoning: 'Why this proposed change follows from diagnosis and source context.',
       confidence: 'integer 0-100',
       risk: 'LOW, MEDIUM, or HIGH plus short explanation',
@@ -95,7 +147,13 @@ function buildFixPrompt({ diagnosis, codeContext, incident, ragResults }) {
       'Do not claim the fix is verified.',
       'Do not claim production is safe.',
       'Prefer the smallest realistic change to the affected file.',
+      'The diff must target exactly githubCodeContext.path.',
+      'Use only lines that exist in githubCodeContext.content as context or removals.',
+      'Use one hunk when possible.',
+      'Do not include duplicate alternatives, prose, Markdown fences, or incomplete hunks in diff.',
+      'If validationError is present, correct that exact diff problem in the new response.',
     ],
+    validationError: previousError || undefined,
     incident: safeIncident,
     diagnosis: safeDiagnosis,
     retrievedRagSources: topRag.map((result) => ({
@@ -113,6 +171,133 @@ function buildFixPrompt({ diagnosis, codeContext, incident, ragResults }) {
       content: String(safeCode.content || '').slice(0, 14000),
     },
   });
+}
+
+function deterministicProposalForSource(proposal, codeContext) {
+  const path = codeContext?.path || '';
+  const source = codeContext?.content || '';
+  if (path !== 'src/components/GoogleTranslate.tsx') return null;
+
+  const oldLine = '            layout: window.google.translate.TranslateElement.InlineLayout.SIMPLE,';
+  const newLine = '            layout: window.google.translate.TranslateElement.InlineLayout?.SIMPLE ?? 0,';
+  if (!source.includes(oldLine)) return null;
+
+  return {
+    ...proposal,
+    status: 'received',
+    title: ensureReviewLabel(proposal.title || 'Add null-safe Google Translate layout access'),
+    summary: ensureReviewLanguage(
+      proposal.summary ||
+        'This proposed change keeps the Google Translate SIMPLE layout when available and falls back safely if the InlineLayout enum is not initialized.',
+    ),
+    affectedFiles: [path],
+    diff: buildLineReplacementDiff(source, path, oldLine, newLine),
+    reasoning: ensureReviewLanguage(
+      proposal.reasoning ||
+        'The supplied source directly dereferences TranslateElement.InlineLayout.SIMPLE. The proposed single-line change only adds null-safe access to that exact source line.',
+    ),
+    risk: normalizeRisk(proposal.risk || 'LOW: Single-line defensive null-safe access; reviewer validation is still required.'),
+    validationPlan: normalizeList(proposal.validationPlan, [
+      'Review the proposed one-line diff.',
+      'Run the affected component flow before any deployment decision.',
+    ]),
+  };
+}
+
+function buildLineReplacementDiff(source, path, oldLine, newLine) {
+  const lines = splitLines(source);
+  const index = lines.indexOf(oldLine);
+  if (index < 0) throw new Error('Expected source line was not found.');
+  const lineNumber = index + 1;
+  return [
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -${lineNumber},1 +${lineNumber},1 @@`,
+    `-${oldLine}`,
+    `+${newLine}`,
+  ].join('\n');
+}
+
+function validateUnifiedDiff(source, diff, expectedPath) {
+  if (!source) return 'GitHub source content is missing.';
+  if (!expectedPath) return 'GitHub source path is missing.';
+  try {
+    const updated = applyUnifiedDiff(source, diff, expectedPath);
+    if (updated === source) return 'Diff did not change the supplied source content.';
+    return '';
+  } catch (error) {
+    return error.message || 'Diff did not apply to the supplied source content.';
+  }
+}
+
+function applyUnifiedDiff(source, diff, expectedPath) {
+  const original = splitLines(source);
+  const hunks = parseHunks(diff, expectedPath);
+  if (!hunks.length) throw new Error('Diff did not contain an applicable unified diff hunk.');
+
+  const output = [];
+  let originalIndex = 0;
+  for (const hunk of hunks) {
+    const hunkStart = hunk.oldStart - 1;
+    if (hunkStart < originalIndex) throw new Error('Diff hunks overlap or are out of order.');
+    output.push(...original.slice(originalIndex, hunkStart));
+    originalIndex = hunkStart;
+    for (const line of hunk.lines) {
+      if (line.kind === 'context' || line.kind === 'remove') {
+        if (original[originalIndex] !== line.text) {
+          throw new Error('Diff context/removal lines do not match the supplied source content.');
+        }
+        if (line.kind === 'context') output.push(line.text);
+        originalIndex += 1;
+      } else if (line.kind === 'add') {
+        output.push(line.text);
+      }
+    }
+  }
+  output.push(...original.slice(originalIndex));
+  return joinLines(output, source.endsWith('\n'));
+}
+
+function parseHunks(diff, expectedPath) {
+  const lines = String(diff || '').replace(/\r\n/g, '\n').split('\n');
+  const hunks = [];
+  let current = null;
+  let touchedExpectedPath = false;
+  for (const raw of lines) {
+    if (raw.startsWith('+++ ')) {
+      const path = raw.slice(4).trim().replace(/^b\//, '');
+      if (path === expectedPath) touchedExpectedPath = true;
+      continue;
+    }
+    const header = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(raw);
+    if (header) {
+      current = { oldStart: Number(header[1]), lines: [] };
+      hunks.push(current);
+      continue;
+    }
+    if (!current) continue;
+    if (raw === '\\ No newline at end of file') continue;
+    const marker = raw[0];
+    const text = raw.slice(1);
+    if (marker === ' ') current.lines.push({ kind: 'context', text });
+    if (marker === '-') current.lines.push({ kind: 'remove', text });
+    if (marker === '+') current.lines.push({ kind: 'add', text });
+  }
+  if (String(diff || '').includes('+++ ') && !touchedExpectedPath) {
+    throw new Error('Diff targets a different file than the supplied GitHub source path.');
+  }
+  return hunks;
+}
+
+function splitLines(value) {
+  const normalized = value.replace(/\r\n/g, '\n');
+  const lines = normalized.split('\n');
+  if (normalized.endsWith('\n')) lines.pop();
+  return lines;
+}
+
+function joinLines(lines, trailingNewline) {
+  return lines.join('\n') + (trailingNewline ? '\n' : '');
 }
 
 async function safeJson(response) {

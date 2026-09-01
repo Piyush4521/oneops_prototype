@@ -111,8 +111,14 @@ export async function createPullRequestFromProposal({ incident, proposal, codeCo
   }
 
   await assertWritePermission(config);
+  const branchBase = safeBranchBase(incident.id);
+  const existingPr = await findExistingOneOpsPullRequest(config, branchBase, base, path);
+  if (existingPr) {
+    return existingPr;
+  }
+
   const baseRef = await requestJson(config, `/git/ref/heads/${encodeURIComponent(base)}`);
-  const branch = await createAvailableBranch(config, safeBranchBase(incident.id), baseRef.object?.sha);
+  const branch = await createAvailableBranch(config, branchBase, baseRef.object?.sha);
   const commitMessage = `fix: ${proposal.title}`.slice(0, 200);
   const commitResponse = await requestJson(config, `/contents/${encodeGitPath(path)}`, {
     method: 'PUT',
@@ -151,6 +157,40 @@ export async function createPullRequestFromProposal({ incident, proposal, codeCo
     prUrl: pr.html_url,
     base,
   };
+}
+
+async function findExistingOneOpsPullRequest(config, branchBase, base, path) {
+  const pulls = await requestJson(
+    config,
+    `/pulls?state=open&base=${encodeURIComponent(base)}&per_page=100`,
+  );
+  for (const pr of Array.isArray(pulls) ? pulls : []) {
+    const branch = pr.head?.ref || '';
+    if (branch !== branchBase && !branch.startsWith(`${branchBase}-`)) continue;
+
+    const files = await requestJson(config, `/pulls/${pr.number}/files?per_page=100`);
+    const changedFiles = Array.isArray(files) ? files.map((file) => file.filename) : [];
+    if (changedFiles.length !== 1 || changedFiles[0] !== path) continue;
+
+    console.warn('[OneOps] PR_REUSE_EXISTING', {
+      prNumber: pr.number,
+      branch,
+      base,
+      path,
+    });
+
+    return {
+      status: 'created',
+      repository: config.repository,
+      branch,
+      commit: pr.head?.sha || '',
+      prNumber: pr.number,
+      prUrl: pr.html_url,
+      base,
+      reused: true,
+    };
+  }
+  return null;
 }
 
 export async function fetchPullRequestGovernance({ prNumber }) {
