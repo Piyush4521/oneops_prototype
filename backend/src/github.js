@@ -95,15 +95,14 @@ export async function createPullRequestFromProposal({ incident, proposal, codeCo
     throw new GitHubRequestError('GitHub code context repository does not match the configured target repository.', 422);
   }
 
-  const base = 'main';
+  const base = codeContext.ref || config.ref || 'main';
   const path = codeContext.path;
   const baseContent = await fetchFileContent(config, path, base);
-  const latestCommit = await fetchLatestCommitSha(config, path);
-  if (codeContext.commit && latestCommit && codeContext.commit !== latestCommit) {
-    throw new GitHubRequestError('GitHub source changed after code context retrieval. Refresh code context before creating a PR.', 409);
-  }
   if (baseContent.content !== codeContext.content) {
-    throw new GitHubRequestError('GitHub source changed after code context retrieval. Refresh code context before creating a PR.', 409);
+    throw new GitHubRequestError(
+      'GitHub source changed after code context retrieval. Refresh code context before creating a PR.',
+      409,
+    );
   }
 
   const updatedContent = applyUnifiedDiff(baseContent.content, proposal.diff, path);
