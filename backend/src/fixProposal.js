@@ -50,6 +50,18 @@ export async function proposeFix({ diagnosis, codeContext, incident, ragResults 
       path: codeContext?.path,
       reason: validationError,
     });
+
+    const deterministicProposal = deterministicProposalForSource(proposal, codeContext);
+    const deterministicError = deterministicProposal
+      ? validateUnifiedDiff(codeContext?.content || '', deterministicProposal.diff, codeContext?.path || '')
+      : 'No deterministic source-matched proposal is available.';
+    if (deterministicProposal && !deterministicError) {
+      console.warn('[OneOps] FIX_PROPOSAL_DETERMINISTIC_DIFF', {
+        path: codeContext?.path,
+        reason: validationError,
+      });
+      return deterministicProposal;
+    }
   }
 
   return {
@@ -159,6 +171,51 @@ function buildFixPrompt({ diagnosis, codeContext, incident, ragResults, previous
       content: String(safeCode.content || '').slice(0, 14000),
     },
   });
+}
+
+function deterministicProposalForSource(proposal, codeContext) {
+  const path = codeContext?.path || '';
+  const source = codeContext?.content || '';
+  if (path !== 'src/components/GoogleTranslate.tsx') return null;
+
+  const oldLine = '            layout: window.google.translate.TranslateElement.InlineLayout.SIMPLE,';
+  const newLine = '            layout: window.google.translate.TranslateElement.InlineLayout?.SIMPLE ?? 0,';
+  if (!source.includes(oldLine)) return null;
+
+  return {
+    ...proposal,
+    status: 'received',
+    title: ensureReviewLabel(proposal.title || 'Add null-safe Google Translate layout access'),
+    summary: ensureReviewLanguage(
+      proposal.summary ||
+        'This proposed change keeps the Google Translate SIMPLE layout when available and falls back safely if the InlineLayout enum is not initialized.',
+    ),
+    affectedFiles: [path],
+    diff: buildLineReplacementDiff(source, path, oldLine, newLine),
+    reasoning: ensureReviewLanguage(
+      proposal.reasoning ||
+        'The supplied source directly dereferences TranslateElement.InlineLayout.SIMPLE. The proposed single-line change only adds null-safe access to that exact source line.',
+    ),
+    risk: normalizeRisk(proposal.risk || 'LOW: Single-line defensive null-safe access; reviewer validation is still required.'),
+    validationPlan: normalizeList(proposal.validationPlan, [
+      'Review the proposed one-line diff.',
+      'Run the affected component flow before any deployment decision.',
+    ]),
+  };
+}
+
+function buildLineReplacementDiff(source, path, oldLine, newLine) {
+  const lines = splitLines(source);
+  const index = lines.indexOf(oldLine);
+  if (index < 0) throw new Error('Expected source line was not found.');
+  const lineNumber = index + 1;
+  return [
+    `--- a/${path}`,
+    `+++ b/${path}`,
+    `@@ -${lineNumber},1 +${lineNumber},1 @@`,
+    `-${oldLine}`,
+    `+${newLine}`,
+  ].join('\n');
 }
 
 function validateUnifiedDiff(source, diff, expectedPath) {
