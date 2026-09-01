@@ -1,17 +1,23 @@
 import 'package:flutter/material.dart';
 
+import '../models/change_gate.dart';
 import '../models/code_context.dart';
+import '../models/diagnosis.dart';
+import '../models/fix_proposal.dart';
 import '../models/incident_state.dart';
+import '../models/pr_creation.dart';
+import '../models/rag_context.dart';
 
-const _surface = Color(0xFF111720);
-const _surfaceSoft = Color(0xFF161E28);
-const _border = Color(0xFF273242);
-const _accent = Color(0xFF7BC7C0);
-const _success = Color(0xFF41D38B);
+const _surface = Color(0xFFFFFCF5);
+const _surfaceSoft = Color(0xFFFFF2C2);
+const _border = Color(0xFF162033);
+const _accent = Color(0xFFF5B700);
+const _success = Color(0xFF18864B);
 const _warning = Color(0xFFFFC857);
-const _danger = Color(0xFFFF6B6B);
-const _muted = Color(0xFF8C98A8);
-const _ink = Color(0xFFE7EDF4);
+const _danger = Color(0xFFE85D4F);
+const _muted = Color(0xFF697386);
+const _ink = Color(0xFF162033);
+const _blue = Color(0xFF2F80ED);
 
 Color statusColor(String status) {
   if (status.contains('RECOVERED') || status.contains('VERIFIED')) {
@@ -21,7 +27,8 @@ Color statusColor(String status) {
   if (status.contains('APPROVAL') || status.contains('REPRODUCING')) {
     return _warning;
   }
-  return _accent;
+  if (status.contains('CI') || status.contains('GIT')) return _blue;
+  return _ink;
 }
 
 class StatusBadge extends StatelessWidget {
@@ -36,16 +43,16 @@ class StatusBadge extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        border: Border.all(color: color.withValues(alpha: 0.45)),
+        color: color.withValues(alpha: color == _ink ? 0.06 : 0.14),
+        border: Border.all(color: color.withValues(alpha: 0.55), width: 1.2),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Text(
         label,
         style: TextStyle(
-          color: color,
+          color: color == _warning ? _ink : color,
           fontSize: 11,
-          fontWeight: FontWeight.w800,
+          fontWeight: FontWeight.w900,
           letterSpacing: 0,
         ),
       ),
@@ -71,11 +78,18 @@ class SectionPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: _surface,
-        border: Border.all(color: _border),
+        border: Border.all(color: _border, width: 1.4),
         borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1F162033),
+            offset: Offset(3, 4),
+            blurRadius: 0,
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -90,14 +104,19 @@ class SectionPanel extends StatelessWidget {
                       title,
                       style: const TextStyle(
                         fontSize: 16,
-                        fontWeight: FontWeight.w800,
+                        fontWeight: FontWeight.w900,
                       ),
                     ),
                     if (subtitle != null) ...[
                       const SizedBox(height: 3),
                       Text(
                         subtitle!,
-                        style: const TextStyle(color: _muted, fontSize: 12),
+                        style: const TextStyle(
+                          color: _muted,
+                          fontSize: 12,
+                          height: 1.25,
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ],
                   ],
@@ -130,39 +149,59 @@ class ScreenIntro extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: Row(
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 16),
+      decoration: BoxDecoration(
+        color: _warning,
+        border: Border.all(color: _border, width: 1.6),
+        borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x33162033),
+            offset: Offset(4, 5),
+            blurRadius: 0,
+          ),
+        ],
+      ),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
+          Row(
+            children: [
+              Expanded(
+                child: Text(
                   kicker.toUpperCase(),
                   style: const TextStyle(
-                    color: _accent,
+                    color: _ink,
                     fontSize: 11,
                     fontWeight: FontWeight.w900,
                   ),
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  title,
-                  style: const TextStyle(
-                    color: _ink,
-                    fontSize: 22,
-                    fontWeight: FontWeight.w900,
-                    height: 1.15,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(body, style: const TextStyle(color: _muted, height: 1.35)),
-              ],
+              ),
+              if (trailing != null) trailing!,
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            title,
+            style: const TextStyle(
+              color: _ink,
+              fontSize: 30,
+              fontWeight: FontWeight.w900,
+              height: 1.02,
             ),
           ),
-          if (trailing != null) ...[const SizedBox(width: 12), trailing!],
+          const SizedBox(height: 8),
+          Text(
+            body,
+            style: const TextStyle(
+              color: _ink,
+              height: 1.3,
+              fontWeight: FontWeight.w700,
+            ),
+          ),
         ],
       ),
     );
@@ -181,23 +220,34 @@ class IncidentHeader extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: _surface,
-        border: Border.all(color: _border),
+        border: Border.all(color: _border, width: 1.4),
         borderRadius: BorderRadius.circular(8),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x24162033),
+            offset: Offset(3, 4),
+            blurRadius: 0,
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Text(
-                active?.id ?? 'ONEOPS',
-                style: const TextStyle(
-                  fontSize: 28,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 0,
+              Expanded(
+                child: Text(
+                  active?.id ?? 'ONEOPS',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontSize: 28,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0,
+                  ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               StatusBadge(label: active?.severity ?? 'STANDBY'),
             ],
           ),
@@ -218,9 +268,9 @@ class IncidentHeader extends StatelessWidget {
               StatusBadge(label: active?.status ?? 'READY'),
               StatusBadge(
                 label: 'Confidence ${active?.confidence ?? 0}%',
-                tone: _accent,
+                tone: _blue,
               ),
-              StatusBadge(label: 'API service', tone: const Color(0xFF9FB7FF)),
+              StatusBadge(label: active?.mttr ?? 'MTTR -', tone: _success),
             ],
           ),
         ],
@@ -249,8 +299,8 @@ class MetricTile extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: _surfaceSoft,
-        border: Border.all(color: _border),
+        color: Colors.white,
+        border: Border.all(color: _border.withValues(alpha: 0.22)),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -263,13 +313,18 @@ class MetricTile extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(label, style: const TextStyle(color: _muted, fontSize: 12)),
+                Text(label,
+                    style: const TextStyle(
+                        color: _muted,
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700)),
                 const SizedBox(height: 4),
                 Text(
                   value,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(fontWeight: FontWeight.w800),
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w900, color: _ink, height: 1.2),
                 ),
               ],
             ),
@@ -300,8 +355,8 @@ class GateBanner extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.11),
-        border: Border.all(color: color.withValues(alpha: 0.45)),
+        color: color.withValues(alpha: color == _warning ? 0.38 : 0.11),
+        border: Border.all(color: color.withValues(alpha: 0.55), width: 1.2),
         borderRadius: BorderRadius.circular(8),
       ),
       child: Row(
@@ -313,14 +368,20 @@ class GateBanner extends StatelessWidget {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: const TextStyle(fontWeight: FontWeight.w900)),
+                Text(title,
+                    style: const TextStyle(fontWeight: FontWeight.w900)),
                 const SizedBox(height: 4),
-                Text(message, style: const TextStyle(color: _ink, height: 1.35)),
+                Text(message,
+                    style: const TextStyle(color: _ink, height: 1.35)),
               ],
             ),
           ),
           const SizedBox(width: 8),
-          StatusBadge(label: status),
+          Flexible(
+              child: Align(
+            alignment: Alignment.topRight,
+            child: StatusBadge(label: status),
+          )),
         ],
       ),
     );
@@ -340,9 +401,12 @@ class ConfidenceIndicator extends StatelessWidget {
       children: [
         Row(
           children: [
-            const Text('Confidence', style: TextStyle(fontWeight: FontWeight.w800)),
+            const Text('Confidence',
+                style: TextStyle(fontWeight: FontWeight.w800)),
             const Spacer(),
-            Text('$clamped%', style: const TextStyle(color: _accent, fontWeight: FontWeight.w900)),
+            Text('$clamped%',
+                style: const TextStyle(
+                    color: _accent, fontWeight: FontWeight.w900)),
           ],
         ),
         const SizedBox(height: 8),
@@ -352,7 +416,8 @@ class ConfidenceIndicator extends StatelessWidget {
             minHeight: 8,
             value: clamped / 100,
             backgroundColor: _surfaceSoft,
-            valueColor: AlwaysStoppedAnimation(statusColor('$clamped VERIFIED')),
+            valueColor:
+                AlwaysStoppedAnimation(statusColor('$clamped VERIFIED')),
           ),
         ),
       ],
@@ -390,9 +455,11 @@ class WorkflowProgress extends StatelessWidget {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(step.label, style: const TextStyle(fontWeight: FontWeight.w800)),
+                    Text(step.label,
+                        style: const TextStyle(fontWeight: FontWeight.w800)),
                     if (step.detail.isNotEmpty)
-                      Text(step.detail, style: const TextStyle(color: _muted, fontSize: 12)),
+                      Text(step.detail,
+                          style: const TextStyle(color: _muted, fontSize: 12)),
                   ],
                 ),
               ),
@@ -412,7 +479,8 @@ class EvidenceCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final source = text.contains(':') ? text.split(':').first : 'Evidence';
-    final body = text.contains(':') ? text.substring(text.indexOf(':') + 1) : text;
+    final body =
+        text.contains(':') ? text.substring(text.indexOf(':') + 1) : text;
     return Container(
       margin: const EdgeInsets.only(bottom: 8),
       padding: const EdgeInsets.all(12),
@@ -475,7 +543,8 @@ class HypothesisCard extends StatelessWidget {
         children: [
           Text(
             label,
-            style: TextStyle(color: tone, fontSize: 11, fontWeight: FontWeight.w900),
+            style: TextStyle(
+                color: tone, fontSize: 11, fontWeight: FontWeight.w900),
           ),
           const SizedBox(height: 6),
           Text(text, style: const TextStyle(height: 1.35)),
@@ -512,7 +581,7 @@ class ActionButton extends StatelessWidget {
                 child: CircularProgressIndicator(strokeWidth: 2),
               )
             : Icon(icon),
-        label: Text(label),
+        label: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis),
       );
     }
     return OutlinedButton.icon(
@@ -523,7 +592,7 @@ class ActionButton extends StatelessWidget {
               child: CircularProgressIndicator(strokeWidth: 2),
             )
           : Icon(icon),
-      label: Text(label),
+      label: Text(label, maxLines: 2, overflow: TextOverflow.ellipsis),
     );
   }
 }
@@ -555,7 +624,8 @@ class CodeDiffCard extends StatelessWidget {
               const Icon(Icons.difference_outlined, color: _accent, size: 18),
               const SizedBox(width: 8),
               const Expanded(
-                child: Text('Candidate change', style: TextStyle(fontWeight: FontWeight.w900)),
+                child: Text('Candidate change',
+                    style: TextStyle(fontWeight: FontWeight.w900)),
               ),
               StatusBadge(label: ready ? 'REVIEWABLE' : 'LOCKED'),
             ],
@@ -581,7 +651,8 @@ class CodeDiffCard extends StatelessWidget {
                   Expanded(
                     child: Text(
                       line.$2,
-                      style: const TextStyle(fontFamily: 'monospace', height: 1.35),
+                      style: const TextStyle(
+                          fontFamily: 'monospace', height: 1.35),
                     ),
                   ),
                 ],
@@ -602,12 +673,26 @@ class BuildProgress extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final reproducing = status == 'REPRODUCING';
-    final verified = status == 'VERIFIED_FIX_READY' || status == 'APPROVAL_REQUIRED' || status == 'RECOVERED';
+    final verified = status == 'VERIFIED_FIX_READY' ||
+        status == 'APPROVAL_REQUIRED' ||
+        status == 'RECOVERED';
     final rows = [
       ('Office Kit bridge', 'Placeholder ready', false),
       ('Workstation', 'Connected through backend', true),
-      ('Docker sandbox', reproducing ? 'Testing' : verified ? 'Completed' : 'Waiting', reproducing || verified),
-      ('Verification', verified ? 'Completed' : 'Blocked until reproduction', verified),
+      (
+        'Docker sandbox',
+        reproducing
+            ? 'Testing'
+            : verified
+                ? 'Completed'
+                : 'Waiting',
+        reproducing || verified
+      ),
+      (
+        'Verification',
+        verified ? 'Completed' : 'Blocked until reproduction',
+        verified
+      ),
     ];
     return Column(
       children: [
@@ -618,15 +703,20 @@ class BuildProgress extends StatelessWidget {
             padding: const EdgeInsets.all(10),
             decoration: BoxDecoration(
               color: _surfaceSoft,
-              border: Border.all(color: active ? _accent.withValues(alpha: 0.45) : _border),
+              border: Border.all(
+                  color: active ? _accent.withValues(alpha: 0.45) : _border),
               borderRadius: BorderRadius.circular(8),
             ),
             child: Row(
               children: [
-                Icon(active ? Icons.check_circle : Icons.radio_button_unchecked, color: active ? _success : _muted),
+                Icon(active ? Icons.check_circle : Icons.radio_button_unchecked,
+                    color: active ? _success : _muted),
                 const SizedBox(width: 10),
-                Expanded(child: Text(row.$1, style: const TextStyle(fontWeight: FontWeight.w800))),
-                Text(row.$2, style: const TextStyle(color: _muted, fontSize: 12)),
+                Expanded(
+                    child: Text(row.$1,
+                        style: const TextStyle(fontWeight: FontWeight.w800))),
+                Text(row.$2,
+                    style: const TextStyle(color: _muted, fontSize: 12)),
               ],
             ),
           );
@@ -639,8 +729,10 @@ class BuildProgress extends StatelessWidget {
               tilePadding: EdgeInsets.zero,
               childrenPadding: EdgeInsets.zero,
               leading: const Icon(Icons.terminal, color: _accent),
-              title: const Text('View technical logs', style: TextStyle(fontWeight: FontWeight.w800)),
-              subtitle: const Text('Short operational summary only', style: TextStyle(color: _muted, fontSize: 12)),
+              title: const Text('View technical logs',
+                  style: TextStyle(fontWeight: FontWeight.w800)),
+              subtitle: const Text('Short operational summary only',
+                  style: TextStyle(color: _muted, fontSize: 12)),
               children: [
                 Container(
                   width: double.infinity,
@@ -654,7 +746,8 @@ class BuildProgress extends StatelessWidget {
                     status == 'REPRODUCING'
                         ? 'sandbox: running targeted reproduction\npolicy: recovery disabled until verification'
                         : 'sandbox: waiting for command\npolicy: no production recovery without approval',
-                    style: const TextStyle(fontFamily: 'monospace', color: _muted, height: 1.4),
+                    style: const TextStyle(
+                        fontFamily: 'monospace', color: _muted, height: 1.4),
                   ),
                 ),
               ],
@@ -688,8 +781,8 @@ class AskForCodePanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final request = state.request;
     return SectionPanel(
-      title: 'Ask for code context',
-      subtitle: 'Relevant file only, repository stays private',
+      title: 'Code context',
+      subtitle: 'Sirf affected file. Full repo expose nahi hoga.',
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -701,7 +794,7 @@ class AskForCodePanel extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           MetricTile(
-            label: 'Potentially affected',
+            label: 'Affected component',
             value: request.component,
             icon: Icons.integration_instructions_outlined,
           ),
@@ -735,7 +828,9 @@ class AskForCodePanel extends StatelessWidget {
             child: Wrap(
               spacing: 8,
               runSpacing: 8,
-              children: request.scope.map((item) => StatusBadge(label: item, tone: _accent)).toList(),
+              children: request.scope
+                  .map((item) => StatusBadge(label: item, tone: _accent))
+                  .toList(),
             ),
           ),
           Container(
@@ -753,7 +848,7 @@ class AskForCodePanel extends StatelessWidget {
                 SizedBox(width: 10),
                 Expanded(
                   child: Text(
-                    'Only the relevant context is requested. The full repository is not exposed.',
+                    'Relevant code chahiye? OneOps read-only context mangwata hai.',
                     style: TextStyle(height: 1.35),
                   ),
                 ),
@@ -761,11 +856,13 @@ class AskForCodePanel extends StatelessWidget {
             ),
           ),
           const SizedBox(height: 12),
-          if (state.status == CodeContextStatus.received && state.result != null) ...[
+          if (state.status == CodeContextStatus.received &&
+              state.result != null) ...[
             _ReceivedContext(result: state.result!),
             const SizedBox(height: 12),
           ],
-          if (state.status == CodeContextStatus.failed && state.error != null) ...[
+          if (state.status == CodeContextStatus.failed &&
+              state.error != null) ...[
             _ErrorCallout(message: state.error!),
             const SizedBox(height: 12),
           ],
@@ -781,14 +878,20 @@ class AskForCodePanel extends StatelessWidget {
                 )
               else
                 ActionButton(
-                  label: state.status == CodeContextStatus.failed ? 'Retry code context' : 'Request code context',
+                  label: state.status == CodeContextStatus.failed
+                      ? 'Retry karo'
+                      : 'Code mangwao',
                   icon: Icons.code,
                   primary: true,
                   loading: state.status == CodeContextStatus.requesting,
-                  onPressed: available ? (state.status == CodeContextStatus.failed ? onRetry : onRequest) : null,
+                  onPressed: available
+                      ? (state.status == CodeContextStatus.failed
+                          ? onRetry
+                          : onRequest)
+                      : null,
                 ),
               ActionButton(
-                label: 'Continue to proposed fix',
+                label: 'Fix dekho',
                 icon: Icons.arrow_forward,
                 onPressed: onContinue,
               ),
@@ -811,23 +914,28 @@ class AskForCodePanel extends StatelessWidget {
 
   String get _title {
     return switch (state.status) {
-      CodeContextStatus.idle => available ? 'Potential cause identified' : 'Investigation required first',
-      CodeContextStatus.requesting => 'Requesting relevant code...',
-      CodeContextStatus.received => 'Code context received',
-      CodeContextStatus.failed => 'Code context request failed',
-      CodeContextStatus.cancelled => 'Code context request cancelled',
+      CodeContextStatus.idle =>
+        available ? 'Relevant code chahiye?' : 'Pehle investigation karo',
+      CodeContextStatus.requesting => 'Code aa raha hai...',
+      CodeContextStatus.received => 'Code mil gaya',
+      CodeContextStatus.failed => 'Code request fail hua',
+      CodeContextStatus.cancelled => 'Code request cancelled',
     };
   }
 
   String get _message {
     return switch (state.status) {
       CodeContextStatus.idle => available
-          ? 'OneOps can now request the smallest useful code context for diagnosis.'
-          : 'Run investigation before requesting component-level code context.',
-      CodeContextStatus.requesting => 'Fetching read-only context through the OneOps backend.',
-      CodeContextStatus.received => 'The requested file context is available for the proposed fix review.',
-      CodeContextStatus.failed => 'No code context was attached. Retry when the workspace is available.',
-      CodeContextStatus.cancelled => 'No repository data was requested after cancellation.',
+          ? 'Sirf affected file mangwa rahe hain. Full repo expose nahi hoga.'
+          : 'Cause narrow karo, phir GitHub context request hoga.',
+      CodeContextStatus.requesting =>
+        'GitHub se read-only source context fetch ho raha hai.',
+      CodeContextStatus.received =>
+        'Retrieved context diagnosis aur fix proposal mein use hoga.',
+      CodeContextStatus.failed =>
+        'Backend error real hai. Connection theek karke retry karo.',
+      CodeContextStatus.cancelled =>
+        'Cancel ke baad repository data attach nahi hua.',
     };
   }
 }
@@ -854,23 +962,41 @@ class _ReceivedContext extends StatelessWidget {
             children: [
               Icon(Icons.check_circle, color: _success, size: 20),
               SizedBox(width: 8),
-              Text('CODE CONTEXT RECEIVED', style: TextStyle(fontWeight: FontWeight.w900)),
+              Text('CODE MIL GAYA',
+                  style: TextStyle(fontWeight: FontWeight.w900)),
             ],
           ),
           const SizedBox(height: 10),
-          MetricTile(label: 'Repository', value: result.repository, icon: Icons.storage_outlined),
+          MetricTile(
+              label: 'Repository',
+              value: result.repository,
+              icon: Icons.storage_outlined),
           const SizedBox(height: 8),
-          MetricTile(label: 'Path', value: result.path, icon: Icons.description_outlined),
+          MetricTile(
+              label: 'Path',
+              value: result.path,
+              icon: Icons.description_outlined),
           const SizedBox(height: 8),
           Row(
             children: [
-              Expanded(child: MetricTile(label: 'Branch', value: result.ref, icon: Icons.account_tree_outlined)),
+              Expanded(
+                  child: MetricTile(
+                      label: 'Branch',
+                      value: result.ref,
+                      icon: Icons.account_tree_outlined)),
               const SizedBox(width: 8),
-              Expanded(child: MetricTile(label: 'Commit', value: _shortCommit(result.commit), icon: Icons.commit)),
+              Expanded(
+                  child: MetricTile(
+                      label: 'Commit',
+                      value: _shortCommit(result.commit),
+                      icon: Icons.commit)),
             ],
           ),
           const SizedBox(height: 8),
-          MetricTile(label: 'Source', value: result.source, icon: Icons.source_outlined),
+          MetricTile(
+              label: 'Source',
+              value: result.source,
+              icon: Icons.source_outlined),
           const SizedBox(height: 8),
           MetricTile(
             label: 'Received',
@@ -886,8 +1012,10 @@ class _ReceivedContext extends StatelessWidget {
                 tilePadding: EdgeInsets.zero,
                 childrenPadding: EdgeInsets.zero,
                 leading: const Icon(Icons.article_outlined, color: _accent),
-                title: const Text('Source preview', style: TextStyle(fontWeight: FontWeight.w800)),
-                subtitle: Text(result.fileName, style: const TextStyle(color: _muted, fontSize: 12)),
+                title: const Text('Source preview',
+                    style: TextStyle(fontWeight: FontWeight.w800)),
+                subtitle: Text(result.fileName,
+                    style: const TextStyle(color: _muted, fontSize: 12)),
                 children: [
                   Container(
                     width: double.infinity,
@@ -899,7 +1027,8 @@ class _ReceivedContext extends StatelessWidget {
                     ),
                     child: Text(
                       _preview(result.content),
-                      style: const TextStyle(fontFamily: 'monospace', color: _ink, height: 1.35),
+                      style: const TextStyle(
+                          fontFamily: 'monospace', color: _ink, height: 1.35),
                     ),
                   ),
                 ],
@@ -925,6 +1054,586 @@ class _ReceivedContext extends StatelessWidget {
   String _preview(String content) {
     if (content.length <= 1200) return content;
     return '${content.substring(0, 1200)}\n\n... preview truncated in mobile UI';
+  }
+}
+
+class RagContextPanel extends StatelessWidget {
+  const RagContextPanel({super.key, required this.state});
+
+  final RagContextState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return SectionPanel(
+      title: 'Similar cases mile',
+      subtitle: 'Local RAG sources, compact view',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          StatusBadge(label: _statusLabel),
+          const SizedBox(height: 12),
+          if (state.status == RagContextStatus.requesting)
+            const LinearProgressIndicator(minHeight: 2),
+          if (state.status == RagContextStatus.idle)
+            const Text(
+              'Code milte hi OneOps local engineering knowledge search karega.',
+              style: TextStyle(color: _muted, height: 1.35),
+            ),
+          if (state.status == RagContextStatus.failed)
+            _ErrorCallout(
+                message:
+                    state.error ?? 'Unable to retrieve engineering knowledge.'),
+          if (state.status == RagContextStatus.received &&
+              state.results.isEmpty)
+            const Text(
+              'Current evidence aur code context se koi source match nahi hua.',
+              style: TextStyle(color: _muted, height: 1.35),
+            ),
+          if (state.results.isNotEmpty)
+            ...state.results.map((result) => _RagResultCard(result: result)),
+        ],
+      ),
+    );
+  }
+
+  String get _statusLabel {
+    return switch (state.status) {
+      RagContextStatus.idle => 'RETRIEVAL WAITING',
+      RagContextStatus.requesting => 'RAG SEARCHING',
+      RagContextStatus.received => 'KNOWLEDGE READY',
+      RagContextStatus.failed => 'RETRIEVAL FAILED',
+    };
+  }
+}
+
+class DiagnosisPanel extends StatelessWidget {
+  const DiagnosisPanel({super.key, required this.state});
+
+  final DiagnosisState state;
+
+  @override
+  Widget build(BuildContext context) {
+    return SectionPanel(
+      title: 'Cause mil gaya',
+      subtitle: 'Guidance hai, absolute truth nahi',
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          StatusBadge(label: _statusLabel),
+          const SizedBox(height: 12),
+          if (state.status == DiagnosisStatus.analyzing)
+            const LinearProgressIndicator(minHeight: 2),
+          if (state.status == DiagnosisStatus.idle)
+            const Text(
+              'Code context aur RAG ke baad diagnosis yahan dikhega.',
+              style: TextStyle(color: _muted, height: 1.35),
+            ),
+          if (state.status == DiagnosisStatus.failed)
+            _ErrorCallout(
+                message: state.error ?? 'Unable to generate AI diagnosis.'),
+          if (state.status == DiagnosisStatus.received && state.result != null)
+            _DiagnosisResultView(result: state.result!),
+        ],
+      ),
+    );
+  }
+
+  String get _statusLabel {
+    return switch (state.status) {
+      DiagnosisStatus.idle => 'DIAGNOSIS WAITING',
+      DiagnosisStatus.analyzing => 'AI SOCH RAHA HAI',
+      DiagnosisStatus.received => 'CAUSE FOUND',
+      DiagnosisStatus.failed => 'DIAGNOSIS FAILED',
+    };
+  }
+}
+
+class FixProposalPanel extends StatelessWidget {
+  const FixProposalPanel({
+    super.key,
+    required this.state,
+    required this.diagnosis,
+    required this.fallbackReady,
+    required this.prCreation,
+    required this.onCreatePullRequest,
+    required this.onViewPullRequest,
+    required this.onContinueToChangeWorkflow,
+  });
+
+  final FixProposalState state;
+  final DiagnosisResult? diagnosis;
+  final bool fallbackReady;
+  final PrCreationState prCreation;
+  final VoidCallback onCreatePullRequest;
+  final VoidCallback onViewPullRequest;
+  final VoidCallback onContinueToChangeWorkflow;
+
+  @override
+  Widget build(BuildContext context) {
+    if (state.status == FixProposalStatus.received && state.result != null) {
+      return _FixProposalResultView(
+        result: state.result!,
+        diagnosis: diagnosis,
+        prCreation: prCreation,
+        onCreatePullRequest: onCreatePullRequest,
+        onViewPullRequest: onViewPullRequest,
+        onContinueToChangeWorkflow: onContinueToChangeWorkflow,
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        GateBanner(
+          status: _statusLabel,
+          title: state.status == FixProposalStatus.generating
+              ? 'Fix draft ho raha hai'
+              : 'Fix abhi locked hai',
+          message: fallbackReady
+              ? 'Backend state ready hai, proposal data ka wait hai.'
+              : 'Diagnosis complete hote hi reviewable fix yahan aayega.',
+          icon: Icons.construction_outlined,
+        ),
+        const SizedBox(height: 10),
+        StatusBadge(label: _statusLabel),
+        const SizedBox(height: 10),
+        if (state.status == FixProposalStatus.generating)
+          const LinearProgressIndicator(minHeight: 2),
+        if (state.status == FixProposalStatus.idle)
+          const Text(
+            'AI diagnosis ke bina OneOps fix draft nahi karega.',
+            style: TextStyle(color: _muted, height: 1.35),
+          ),
+        if (state.status == FixProposalStatus.failed)
+          _ErrorCallout(
+              message: state.error ?? 'Unable to generate fix proposal.'),
+        const SizedBox(height: 10),
+        ActionButton(
+          label: 'Review ke liye bhejo',
+          icon: Icons.rate_review_outlined,
+          primary: true,
+          loading: state.status == FixProposalStatus.generating,
+          onPressed: null,
+        ),
+      ],
+    );
+  }
+
+  String get _statusLabel {
+    return switch (state.status) {
+      FixProposalStatus.idle => 'WAITING',
+      FixProposalStatus.generating => 'GENERATING PROPOSAL',
+      FixProposalStatus.received => 'FIX READY',
+      FixProposalStatus.failed => 'PROPOSAL FAILED',
+    };
+  }
+}
+
+class _FixProposalResultView extends StatelessWidget {
+  const _FixProposalResultView({
+    required this.result,
+    required this.diagnosis,
+    required this.prCreation,
+    required this.onCreatePullRequest,
+    required this.onViewPullRequest,
+    required this.onContinueToChangeWorkflow,
+  });
+
+  final FixProposalResult result;
+  final DiagnosisResult? diagnosis;
+  final PrCreationState prCreation;
+  final VoidCallback onCreatePullRequest;
+  final VoidCallback onViewPullRequest;
+  final VoidCallback onContinueToChangeWorkflow;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const StatusBadge(label: 'FIX READY', tone: _success),
+        const SizedBox(height: 12),
+        Text(
+          result.title,
+          style: const TextStyle(fontSize: 22, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 6),
+        Text(result.summary,
+            style: const TextStyle(
+                color: _ink, height: 1.35, fontWeight: FontWeight.w700)),
+        const SizedBox(height: 12),
+        MetricTile(
+          label: 'Affected file',
+          value:
+              result.affectedFiles.isEmpty ? '-' : result.affectedFiles.first,
+          icon: Icons.description_outlined,
+        ),
+        const SizedBox(height: 10),
+        _ProposalField(
+            label: 'ROOT CAUSE',
+            value: diagnosis?.rootCause ?? 'Diagnosis not available.'),
+        Theme(
+          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+          child: Material(
+            color: Colors.transparent,
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              childrenPadding: EdgeInsets.zero,
+              leading: const Icon(Icons.difference_outlined, color: _accent),
+              title: const Text('Compact diff',
+                  style: TextStyle(fontWeight: FontWeight.w900)),
+              subtitle: const Text('Review before PR',
+                  style: TextStyle(color: _muted, fontSize: 12)),
+              children: [
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF111827),
+                    border: Border.all(color: _border),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: _DiffText(diff: result.diff),
+                ),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        _ProposalField(label: 'WHY THIS FIX', value: result.reasoning),
+        MetricTile(
+            label: 'Confidence',
+            value: '${result.confidence}%',
+            icon: Icons.query_stats),
+        const SizedBox(height: 10),
+        StatusBadge(
+            label: 'RISK ${_riskLevel(result.risk)}',
+            tone: _riskTone(result.risk)),
+        const SizedBox(height: 6),
+        Text(result.risk, style: const TextStyle(color: _muted, height: 1.35)),
+        const SizedBox(height: 10),
+        _ProposalField(
+            label: 'EXPECTED OUTCOME', value: result.expectedOutcome),
+        const Text(
+          'VALIDATION PLAN',
+          style: TextStyle(
+              color: _muted, fontSize: 11, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 6),
+        ...(result.validationPlan.isEmpty
+                ? const ['Review the proposal before any action.']
+                : result.validationPlan)
+            .map((step) => _CheckRow(
+                label: step, icon: Icons.check_circle, color: _success)),
+        const SizedBox(height: 10),
+        _PrCreationPanel(
+          state: prCreation,
+          onCreatePullRequest: onCreatePullRequest,
+          onViewPullRequest: onViewPullRequest,
+          onContinueToChangeWorkflow: onContinueToChangeWorkflow,
+        ),
+      ],
+    );
+  }
+
+  String _riskLevel(String risk) {
+    final upper = risk.toUpperCase();
+    if (upper.startsWith('LOW')) return 'LOW';
+    if (upper.startsWith('HIGH')) return 'HIGH';
+    return 'MEDIUM';
+  }
+
+  Color _riskTone(String risk) {
+    final level = _riskLevel(risk);
+    if (level == 'LOW') return _success;
+    if (level == 'HIGH') return _danger;
+    return _warning;
+  }
+}
+
+class _PrCreationPanel extends StatelessWidget {
+  const _PrCreationPanel({
+    required this.state,
+    required this.onCreatePullRequest,
+    required this.onViewPullRequest,
+    required this.onContinueToChangeWorkflow,
+  });
+
+  final PrCreationState state;
+  final VoidCallback onCreatePullRequest;
+  final VoidCallback onViewPullRequest;
+  final VoidCallback onContinueToChangeWorkflow;
+
+  @override
+  Widget build(BuildContext context) {
+    if (state.status == PrCreationStatus.created && state.result != null) {
+      return _PrCreatedView(
+        result: state.result!,
+        onViewPullRequest: onViewPullRequest,
+        onContinueToChangeWorkflow: onContinueToChangeWorkflow,
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        StatusBadge(label: _statusLabel),
+        const SizedBox(height: 10),
+        if (state.isCreating) const LinearProgressIndicator(minHeight: 2),
+        if (state.status == PrCreationStatus.failed)
+          _ErrorCallout(
+              message: state.error ?? 'Unable to create GitHub pull request.'),
+        const SizedBox(height: 10),
+        ActionButton(
+          label: 'Review ke liye bhejo',
+          icon: Icons.rate_review_outlined,
+          primary: true,
+          loading: state.isCreating,
+          onPressed: state.isCreating ? null : onCreatePullRequest,
+        ),
+      ],
+    );
+  }
+
+  String get _statusLabel {
+    return switch (state.status) {
+      PrCreationStatus.readyToReview => 'READY TO REVIEW',
+      PrCreationStatus.creatingBranch => 'CREATING BRANCH',
+      PrCreationStatus.creatingCommit => 'CREATING COMMIT',
+      PrCreationStatus.openingPullRequest => 'OPENING PULL REQUEST',
+      PrCreationStatus.created => 'PR CREATED',
+      PrCreationStatus.failed => 'PR CREATION FAILED',
+    };
+  }
+}
+
+class _PrCreatedView extends StatelessWidget {
+  const _PrCreatedView({
+    required this.result,
+    required this.onViewPullRequest,
+    required this.onContinueToChangeWorkflow,
+  });
+
+  final PrCreationResult result;
+  final VoidCallback onViewPullRequest;
+  final VoidCallback onContinueToChangeWorkflow;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const StatusBadge(label: 'PR CREATED', tone: _success),
+        const SizedBox(height: 10),
+        MetricTile(
+            label: 'Repository',
+            value: result.repository,
+            icon: Icons.source_outlined),
+        const SizedBox(height: 8),
+        MetricTile(
+            label: 'Branch',
+            value: result.branch,
+            icon: Icons.account_tree_outlined),
+        const SizedBox(height: 8),
+        MetricTile(
+            label: 'PR',
+            value: '#${result.prNumber}',
+            icon: Icons.rate_review_outlined),
+        const SizedBox(height: 8),
+        MetricTile(
+            label: 'Base', value: result.base, icon: Icons.merge_type_outlined),
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ActionButton(
+              label: 'Open PR',
+              icon: Icons.open_in_new,
+              primary: true,
+              onPressed: onViewPullRequest,
+            ),
+            ActionButton(
+              label: 'Govern dekho',
+              icon: Icons.arrow_forward,
+              onPressed: onContinueToChangeWorkflow,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _DiffText extends StatelessWidget {
+  const _DiffText({required this.diff});
+
+  final String diff;
+
+  @override
+  Widget build(BuildContext context) {
+    final lines =
+        diff.trim().isEmpty ? const ['No diff returned.'] : diff.split('\n');
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: lines.take(80).map((line) {
+        final added = line.startsWith('+') && !line.startsWith('+++');
+        final removed = line.startsWith('-') && !line.startsWith('---');
+        final color = added
+            ? const Color(0xFF8CE99A)
+            : removed
+                ? const Color(0xFFFFA8A8)
+                : const Color(0xFFE5E7EB);
+        return Text(
+          line,
+          style: TextStyle(
+            color: color,
+            fontFamily: 'monospace',
+            fontSize: 12,
+            height: 1.35,
+          ),
+        );
+      }).toList(),
+    );
+  }
+}
+
+class _ProposalField extends StatelessWidget {
+  const _ProposalField({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+                color: _muted, fontSize: 11, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 6),
+          Text(value, style: const TextStyle(height: 1.35)),
+        ],
+      ),
+    );
+  }
+}
+
+class _DiagnosisResultView extends StatelessWidget {
+  const _DiagnosisResultView({required this.result});
+
+  final DiagnosisResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _DiagnosisField(label: 'ROOT CAUSE', value: result.rootCause),
+        MetricTile(
+            label: 'Confidence',
+            value: '${result.confidence}%',
+            icon: Icons.query_stats),
+        const SizedBox(height: 10),
+        const Text(
+          'SUPPORTING EVIDENCE',
+          style: TextStyle(
+              color: _muted, fontSize: 11, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 6),
+        ...(result.evidence.isEmpty
+                ? const ['No supporting evidence returned.']
+                : result.evidence)
+            .map((item) => _CheckRow(
+                label: item, icon: Icons.check_circle, color: _success)),
+        _DiagnosisField(label: 'ALTERNATIVE', value: result.alternativeCause),
+        _DiagnosisField(label: 'RISK', value: result.risk),
+        _DiagnosisField(label: 'RECOMMENDATION', value: result.recommendation),
+        if (result.affectedFiles.isNotEmpty) ...[
+          const Text(
+            'AFFECTED FILES',
+            style: TextStyle(
+                color: _muted, fontSize: 11, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 6),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: result.affectedFiles
+                .map((file) => StatusBadge(label: file, tone: _accent))
+                .toList(),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _DiagnosisField extends StatelessWidget {
+  const _DiagnosisField({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(
+                color: _muted, fontSize: 11, fontWeight: FontWeight.w900),
+          ),
+          const SizedBox(height: 6),
+          Text(value, style: const TextStyle(height: 1.35)),
+        ],
+      ),
+    );
+  }
+}
+
+class _RagResultCard extends StatelessWidget {
+  const _RagResultCard({required this.result});
+
+  final RagContextResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: _surfaceSoft,
+        border: Border.all(color: _border),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(result.title,
+              style: const TextStyle(fontWeight: FontWeight.w900)),
+          const SizedBox(height: 6),
+          Text(result.source,
+              style: const TextStyle(color: _accent, fontSize: 12)),
+          const SizedBox(height: 8),
+          Text(result.excerpt,
+              style: const TextStyle(color: _ink, height: 1.35)),
+          const SizedBox(height: 10),
+          StatusBadge(
+              label: 'Relevance ${result.score.toStringAsFixed(3)}',
+              tone: _accent),
+        ],
+      ),
+    );
   }
 }
 
@@ -1077,7 +1786,9 @@ class ReplayTrace extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(title, style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
+          Text(title,
+              style:
+                  const TextStyle(fontSize: 12, fontWeight: FontWeight.w900)),
           const SizedBox(height: 10),
           ...rows.map((row) {
             final passed = row.$2;
@@ -1085,7 +1796,8 @@ class ReplayTrace extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 7),
               child: Row(
                 children: [
-                  Icon(passed ? Icons.check : Icons.close, color: passed ? _success : _danger, size: 18),
+                  Icon(passed ? Icons.check : Icons.close,
+                      color: passed ? _success : _danger, size: 18),
                   const SizedBox(width: 8),
                   Expanded(child: Text(row.$1)),
                 ],
@@ -1130,6 +1842,201 @@ class ApprovalChecklist extends StatelessWidget {
   }
 }
 
+class ChangeGatePanel extends StatelessWidget {
+  const ChangeGatePanel({
+    super.key,
+    required this.state,
+    required this.onEvaluate,
+    required this.onDemoApproval,
+  });
+
+  final ChangeGateState state;
+  final VoidCallback onEvaluate;
+  final VoidCallback onDemoApproval;
+
+  @override
+  Widget build(BuildContext context) {
+    final result = state.result;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'CHANGE GOVERNANCE',
+          style: TextStyle(
+              color: _muted, fontSize: 11, fontWeight: FontWeight.w900),
+        ),
+        const SizedBox(height: 10),
+        if (state.status == ChangeGateStatus.evaluating)
+          const LinearProgressIndicator(minHeight: 2),
+        if (state.status == ChangeGateStatus.failed)
+          _ErrorCallout(
+              message: state.error ?? 'Unable to evaluate change gate.'),
+        if (result == null && state.status != ChangeGateStatus.evaluating)
+          const Text(
+            'PR banao, phir GitHub facts aur OneOps policy evaluate hogi.',
+            style: TextStyle(color: _muted, height: 1.35),
+          ),
+        if (result != null) ...[
+          _GovernanceFacts(result: result),
+          const SizedBox(height: 12),
+          StatusBadge(
+              label: result.finalState.replaceAll('_', ' '),
+              tone: result.eligible ? _success : _warning),
+          const SizedBox(height: 8),
+          ...result.reasons.map((reason) => _CheckRow(
+                label: reason,
+                icon: _reasonIcon(reason),
+                color: _reasonColor(reason),
+              )),
+        ],
+        const SizedBox(height: 10),
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            ActionButton(
+              label: 'Gate evaluate karo',
+              icon: Icons.policy_outlined,
+              primary: result == null,
+              loading: state.status == ChangeGateStatus.evaluating,
+              onPressed: state.status == ChangeGateStatus.evaluating
+                  ? null
+                  : onEvaluate,
+            ),
+            ActionButton(
+              label: 'ONEOPS DEMO APPROVAL',
+              icon: Icons.how_to_reg_outlined,
+              loading: state.status == ChangeGateStatus.evaluating,
+              onPressed: state.status == ChangeGateStatus.evaluating
+                  ? null
+                  : onDemoApproval,
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  IconData _reasonIcon(String reason) {
+    final lower = reason.toLowerCase();
+    if (lower.contains('required') ||
+        lower.contains('must') ||
+        lower.contains('unknown')) {
+      return Icons.hourglass_bottom;
+    }
+    return Icons.check_circle;
+  }
+
+  Color _reasonColor(String reason) {
+    final lower = reason.toLowerCase();
+    if (lower.contains('required') ||
+        lower.contains('must') ||
+        lower.contains('unknown')) {
+      return _warning;
+    }
+    return _success;
+  }
+}
+
+class _GovernanceFacts extends StatelessWidget {
+  const _GovernanceFacts({required this.result});
+
+  final ChangeGateResult result;
+
+  @override
+  Widget build(BuildContext context) {
+    final pr = result.pr;
+    final demoApproval = pr.reviewSource == 'OneOps Demo Approval';
+    final approvalLabel =
+        demoApproval ? 'ONEOPS DEMO APPROVAL' : 'Human approval baaki';
+    final approvalDetail = demoApproval
+        ? 'prototype-only; ${pr.approvingReviews} real GitHub approvals'
+        : '${pr.approvingReviews}/${pr.requiredApprovals} GitHub approvals; ${pr.reviewDecision}';
+    final policyLabel =
+        result.checks.policySatisfied ? 'Policy Satisfied' : 'Policy Blocked';
+    final policyIcon =
+        result.checks.policySatisfied ? Icons.check_circle : Icons.lock;
+    final policyColor = result.checks.policySatisfied ? _success : _warning;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('PR #${pr.prNumber}',
+            style: const TextStyle(fontWeight: FontWeight.w900)),
+        const SizedBox(height: 8),
+        _GateRow(
+            label: 'GitHub PR', passed: result.checks.prOpen, detail: pr.state),
+        _GateRow(
+            label: 'Targets main',
+            passed: result.checks.targetsMain,
+            detail: pr.baseBranch),
+        _GateRow(
+            label: 'CI passed',
+            passed: result.checks.ciPassed,
+            detail: '${pr.ciStatus} via ${pr.ciSource}'),
+        _GateRow(
+          label: approvalLabel,
+          passed: result.checks.humanApproval,
+          detail: approvalDetail,
+        ),
+        _GateRow(
+          label: policyLabel,
+          passed: result.checks.policySatisfied,
+          detail: demoApproval
+              ? 'prototype-only; no merge, deploy, or protection bypass'
+              : 'human yes ke bina execute nahi hoga',
+          icon: policyIcon,
+          color: policyColor,
+        ),
+      ],
+    );
+  }
+}
+
+class _GateRow extends StatelessWidget {
+  const _GateRow({
+    required this.label,
+    required this.passed,
+    this.detail,
+    this.icon,
+    this.color,
+  });
+
+  final String label;
+  final bool passed;
+  final String? detail;
+  final IconData? icon;
+  final Color? color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 7),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon ?? (passed ? Icons.check_circle : Icons.hourglass_bottom),
+              color: color ?? (passed ? _success : _warning), size: 18),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(label,
+                    style: const TextStyle(fontWeight: FontWeight.w900)),
+                const SizedBox(height: 2),
+                Text(
+                  detail ?? (passed ? 'passed' : 'blocked'),
+                  style: const TextStyle(color: _muted, height: 1.35),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class IncidentMemoryCard extends StatelessWidget {
   const IncidentMemoryCard({super.key, required this.incident});
 
@@ -1147,7 +2054,8 @@ class IncidentMemoryCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Green dependency regression', style: TextStyle(fontWeight: FontWeight.w900)),
+          const Text('Green dependency regression',
+              style: TextStyle(fontWeight: FontWeight.w900)),
           const SizedBox(height: 6),
           Text(
             incident?.status == 'RECOVERED'

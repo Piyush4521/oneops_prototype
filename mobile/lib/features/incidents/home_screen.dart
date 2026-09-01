@@ -1,13 +1,17 @@
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 
 import '../../core/api.dart';
+import '../../models/change_gate.dart';
 import '../../models/code_context.dart';
+import '../../models/diagnosis.dart';
+import '../../models/fix_proposal.dart';
 import '../../models/incident_state.dart';
+import '../../models/pr_creation.dart';
+import '../../models/rag_context.dart';
 import '../../widgets/oneops_widgets.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -27,6 +31,16 @@ class _HomeScreenState extends State<HomeScreen> {
   var codeContext = CodeContextState.initial;
   String? codeContextIncidentId;
   var codeContextRequestToken = 0;
+  var ragContext = RagContextState.initial;
+  var ragContextRequestToken = 0;
+  var diagnosis = DiagnosisState.initial;
+  var diagnosisRequestToken = 0;
+  var fixProposal = FixProposalState.initial;
+  var fixProposalRequestToken = 0;
+  var prCreation = PrCreationState.initial;
+  var prCreationRequestToken = 0;
+  var changeGate = ChangeGateState.initial;
+  var changeGateRequestToken = 0;
   final picker = ImagePicker();
   final speech = stt.SpeechToText();
 
@@ -84,10 +98,11 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> camera() async {
-    final image = await picker.pickImage(source: ImageSource.camera, imageQuality: 70);
+    final image =
+        await picker.pickImage(source: ImageSource.camera, imageQuality: 70);
     if (image == null) return;
     setState(() => status = 'Camera evidence attach ho raha hai...');
-    final bytes = await File(image.path).readAsBytes();
+    final bytes = await image.readAsBytes();
     try {
       await OneOpsApi.capture(
         note: 'Camera evidence captured from phone',
@@ -146,19 +161,288 @@ class _HomeScreenState extends State<HomeScreen> {
         path: codeContext.request.fileName,
       );
       if (!mounted || requestToken != codeContextRequestToken) return;
+      final result = CodeContextResult.fromJson(json, DateTime.now());
       setState(() {
         codeContext = codeContext.copyWith(
           status: CodeContextStatus.received,
-          result: CodeContextResult.fromJson(json, DateTime.now()),
+          result: result,
           clearError: true,
         );
       });
+      await requestRagContext(result);
     } catch (_) {
       if (!mounted || requestToken != codeContextRequestToken) return;
       setState(() {
         codeContext = codeContext.copyWith(
           status: CodeContextStatus.failed,
           error: 'Unable to retrieve code context from GitHub.',
+          clearResult: true,
+        );
+      });
+    }
+  }
+
+  Future<void> requestRagContext(CodeContextResult codeResult) async {
+    final active = incident;
+    if (active == null) return;
+    final requestToken = ++ragContextRequestToken;
+    setState(() {
+      ragContext = ragContext.copyWith(
+        status: RagContextStatus.requesting,
+        clearError: true,
+        clearResults: true,
+      );
+    });
+
+    try {
+      final json = await OneOpsApi.requestRagContext(
+        query: _ragQuery(active),
+        codeContext: codeResult.content,
+      );
+      if (!mounted || requestToken != ragContextRequestToken) return;
+      final results = ((json['results'] as List?) ?? const [])
+          .whereType<Map>()
+          .map((value) =>
+              RagContextResult.fromJson(value.cast<String, dynamic>()))
+          .toList();
+      setState(() {
+        ragContext = ragContext.copyWith(
+          status: RagContextStatus.received,
+          results: results,
+          clearError: true,
+        );
+      });
+      await requestDiagnosis(codeResult, results);
+    } catch (_) {
+      if (!mounted || requestToken != ragContextRequestToken) return;
+      setState(() {
+        ragContext = ragContext.copyWith(
+          status: RagContextStatus.failed,
+          error: 'Unable to retrieve engineering knowledge.',
+          clearResults: true,
+        );
+      });
+    }
+  }
+
+  Future<void> requestDiagnosis(
+      CodeContextResult codeResult, List<RagContextResult> ragResults) async {
+    final active = incident;
+    if (active == null) return;
+    final requestToken = ++diagnosisRequestToken;
+    setState(() {
+      diagnosis = diagnosis.copyWith(
+        status: DiagnosisStatus.analyzing,
+        clearError: true,
+        clearResult: true,
+      );
+    });
+
+    try {
+      final json = await OneOpsApi.requestDiagnosis(
+        incident: active.toJson(),
+        codeContext: codeResult.toJson(),
+        ragResults: ragResults.map((result) => result.toJson()).toList(),
+      );
+      if (!mounted || requestToken != diagnosisRequestToken) return;
+      setState(() {
+        diagnosis = diagnosis.copyWith(
+          status: DiagnosisStatus.received,
+          result: DiagnosisResult.fromJson(json),
+          clearError: true,
+        );
+      });
+      await requestFixProposal(
+          codeResult, DiagnosisResult.fromJson(json), ragResults);
+    } catch (_) {
+      if (!mounted || requestToken != diagnosisRequestToken) return;
+      setState(() {
+        diagnosis = diagnosis.copyWith(
+          status: DiagnosisStatus.failed,
+          error: 'Unable to generate AI diagnosis.',
+          clearResult: true,
+        );
+      });
+    }
+  }
+
+  Future<void> requestFixProposal(
+    CodeContextResult codeResult,
+    DiagnosisResult diagnosisResult,
+    List<RagContextResult> ragResults,
+  ) async {
+    final active = incident;
+    if (active == null) return;
+    final requestToken = ++fixProposalRequestToken;
+    setState(() {
+      fixProposal = fixProposal.copyWith(
+        status: FixProposalStatus.generating,
+        clearError: true,
+        clearResult: true,
+      );
+    });
+
+    try {
+      final json = await OneOpsApi.requestFixProposal(
+        diagnosis: diagnosisResult.toJson(),
+        codeContext: codeResult.toJson(),
+        incident: active.toJson(),
+        ragResults: ragResults.map((result) => result.toJson()).toList(),
+      );
+      if (!mounted || requestToken != fixProposalRequestToken) return;
+      setState(() {
+        fixProposal = fixProposal.copyWith(
+          status: FixProposalStatus.received,
+          result: FixProposalResult.fromJson(json),
+          clearError: true,
+        );
+      });
+    } catch (_) {
+      if (!mounted || requestToken != fixProposalRequestToken) return;
+      setState(() {
+        fixProposal = fixProposal.copyWith(
+          status: FixProposalStatus.failed,
+          error: 'Unable to generate fix proposal.',
+          clearResult: true,
+        );
+      });
+    }
+  }
+
+  Future<void> createPullRequest() async {
+    final active = incident;
+    final proposal = fixProposal.result;
+    final codeResult = codeContext.result;
+    if (active == null || proposal == null || codeResult == null) {
+      setState(() {
+        prCreation = prCreation.copyWith(
+          status: PrCreationStatus.failed,
+          error: 'Incident, proposal, and GitHub code context are required.',
+          clearResult: true,
+        );
+      });
+      return;
+    }
+
+    final requestToken = ++prCreationRequestToken;
+    setState(() {
+      prCreation = prCreation.copyWith(
+        status: PrCreationStatus.creatingBranch,
+        clearError: true,
+        clearResult: true,
+      );
+    });
+
+    try {
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      if (!mounted || requestToken != prCreationRequestToken) return;
+      setState(() {
+        prCreation =
+            prCreation.copyWith(status: PrCreationStatus.creatingCommit);
+      });
+      await Future<void>.delayed(const Duration(milliseconds: 250));
+      if (!mounted || requestToken != prCreationRequestToken) return;
+      setState(() {
+        prCreation =
+            prCreation.copyWith(status: PrCreationStatus.openingPullRequest);
+      });
+
+      final json = await OneOpsApi.createPullRequest(
+        incident: active.toJson(),
+        proposal: proposal.toJson(),
+        codeContext: codeResult.toJson(),
+      );
+      if (!mounted || requestToken != prCreationRequestToken) return;
+      setState(() {
+        prCreation = prCreation.copyWith(
+          status: PrCreationStatus.created,
+          result: PrCreationResult.fromJson(json),
+          clearError: true,
+        );
+        status = 'Pull request created.';
+      });
+      await evaluateChangeGate();
+    } catch (error) {
+      if (!mounted || requestToken != prCreationRequestToken) return;
+      setState(() {
+        prCreation = prCreation.copyWith(
+          status: PrCreationStatus.failed,
+          error: _safeError(error),
+          clearResult: true,
+        );
+      });
+    }
+  }
+
+  Future<void> viewPullRequest() async {
+    final url = prCreation.result?.prUrl;
+    if (url == null || url.trim().isEmpty || url == '-') return;
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Pull Request'),
+        content: SelectableText(url),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void continueToChangeWorkflow() {
+    evaluateChangeGate();
+    setState(() => status = 'Evaluating change governance.');
+  }
+
+  Future<void> evaluateChangeGate(
+      {ChangeGatePolicy policy = ChangeGatePolicy.standard}) async {
+    final active = incident;
+    final pr = prCreation.result;
+    if (active == null || pr == null) {
+      setState(() {
+        changeGate = changeGate.copyWith(
+          status: ChangeGateStatus.failed,
+          error:
+              'A pull request is required before change governance can be evaluated.',
+          clearResult: true,
+        );
+      });
+      return;
+    }
+
+    final requestToken = ++changeGateRequestToken;
+    setState(() {
+      changeGate = changeGate.copyWith(
+        status: ChangeGateStatus.evaluating,
+        clearError: true,
+        clearResult: true,
+      );
+    });
+
+    try {
+      final json = await OneOpsApi.evaluateChangeGate(
+        pr: pr.toJson(),
+        incident: active.toJson(),
+        policy: policy.toJson(),
+      );
+      if (!mounted || requestToken != changeGateRequestToken) return;
+      setState(() {
+        changeGate = changeGate.copyWith(
+          status: ChangeGateStatus.evaluated,
+          result: ChangeGateResult.fromJson(json),
+          clearError: true,
+        );
+      });
+    } catch (error) {
+      if (!mounted || requestToken != changeGateRequestToken) return;
+      setState(() {
+        changeGate = changeGate.copyWith(
+          status: ChangeGateStatus.failed,
+          error: _safeError(error),
           clearResult: true,
         );
       });
@@ -186,15 +470,46 @@ class _HomeScreenState extends State<HomeScreen> {
     if (nextIncidentId != codeContextIncidentId) {
       codeContextIncidentId = nextIncidentId;
       codeContextRequestToken++;
+      ragContextRequestToken++;
+      diagnosisRequestToken++;
+      fixProposalRequestToken++;
+      prCreationRequestToken++;
+      changeGateRequestToken++;
       codeContext = CodeContextState.initial;
+      ragContext = RagContextState.initial;
+      diagnosis = DiagnosisState.initial;
+      fixProposal = FixProposalState.initial;
+      prCreation = PrCreationState.initial;
+      changeGate = ChangeGateState.initial;
     }
+  }
+
+  String _ragQuery(Incident active) {
+    return [
+      active.summary,
+      ...active.evidence,
+      active.hypothesis,
+      active.experiment,
+    ].where((value) => value.trim().isNotEmpty).join('\n');
   }
 
   bool _canAskForCode(Incident? active) {
     return switch (active?.status) {
-      'INVESTIGATING' || 'REPRODUCING' || 'VERIFIED_FIX_READY' || 'APPROVAL_REQUIRED' || 'RECOVERED' => true,
+      'INVESTIGATING' ||
+      'REPRODUCING' ||
+      'VERIFIED_FIX_READY' ||
+      'APPROVAL_REQUIRED' ||
+      'RECOVERED' =>
+        true,
       _ => false,
     };
+  }
+
+  String _safeError(Object error) {
+    final text = error.toString();
+    final match = RegExp(r'"error"\s*:\s*"([^"]+)"').firstMatch(text);
+    if (match != null) return match.group(1)!;
+    return 'Unable to create GitHub pull request.';
   }
 
   @override
@@ -202,12 +517,19 @@ class _HomeScreenState extends State<HomeScreen> {
     final pages = [
       _CommandCenter(
         state: state,
+        codeContext: codeContext,
+        diagnosis: diagnosis,
+        fixProposal: fixProposal,
+        prCreation: prCreation,
+        changeGate: changeGate,
         busy: busy,
         status: status,
         onRefresh: refresh,
         onRun: run,
         onCamera: camera,
         onVoice: voiceInput,
+        onOpenFix: () => setState(() => selectedIndex = 2),
+        onOpenGovern: () => setState(() => selectedIndex = 3),
         voice: voice,
         initialLoading: initialLoading,
       ),
@@ -218,15 +540,35 @@ class _HomeScreenState extends State<HomeScreen> {
         onRequestCodeContext: requestCodeContext,
         onCancelCodeContext: cancelCodeContextRequest,
         onRetryCodeContext: requestCodeContext,
-        onContinueToProposedFix: codeContext.canContinue ? continueToProposedFix : null,
+        onContinueToProposedFix:
+            codeContext.canContinue ? continueToProposedFix : null,
+        diagnosis: diagnosis,
       ),
-      _KnowledgePage(incident: incident, codeContext: codeContext),
-      _SettingsPage(state: state, status: status),
+      _FixPage(
+        incident: incident,
+        codeContext: codeContext,
+        ragContext: ragContext,
+        diagnosis: diagnosis,
+        fixProposal: fixProposal,
+        prCreation: prCreation,
+        onCreatePullRequest: createPullRequest,
+        onViewPullRequest: viewPullRequest,
+        onContinueToChangeWorkflow: continueToChangeWorkflow,
+      ),
+      _GovernPage(
+        incident: incident,
+        prCreation: prCreation,
+        changeGate: changeGate,
+        onEvaluateChangeGate: evaluateChangeGate,
+        onEvaluateDemoApprovalGate: () =>
+            evaluateChangeGate(policy: ChangeGatePolicy.demoApproved),
+      ),
     ];
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('OneOps', style: TextStyle(fontWeight: FontWeight.w900)),
+        title:
+            const Text('OneOps', style: TextStyle(fontWeight: FontWeight.w900)),
         actions: [
           IconButton(
             tooltip: 'Refresh',
@@ -254,22 +596,22 @@ class _HomeScreenState extends State<HomeScreen> {
           NavigationDestination(
             icon: Icon(Icons.space_dashboard_outlined),
             selectedIcon: Icon(Icons.space_dashboard),
-            label: 'Command',
+            label: 'Home',
           ),
           NavigationDestination(
             icon: Icon(Icons.assignment_outlined),
             selectedIcon: Icon(Icons.assignment),
-            label: 'Incidents',
+            label: 'Incident',
           ),
           NavigationDestination(
-            icon: Icon(Icons.psychology_alt_outlined),
-            selectedIcon: Icon(Icons.psychology_alt),
-            label: 'Knowledge',
+            icon: Icon(Icons.construction_outlined),
+            selectedIcon: Icon(Icons.construction),
+            label: 'Fix',
           ),
           NavigationDestination(
-            icon: Icon(Icons.tune_outlined),
-            selectedIcon: Icon(Icons.tune),
-            label: 'Settings',
+            icon: Icon(Icons.verified_user_outlined),
+            selectedIcon: Icon(Icons.verified_user),
+            label: 'Govern',
           ),
         ],
       ),
@@ -280,23 +622,37 @@ class _HomeScreenState extends State<HomeScreen> {
 class _CommandCenter extends StatelessWidget {
   const _CommandCenter({
     required this.state,
+    required this.codeContext,
+    required this.diagnosis,
+    required this.fixProposal,
+    required this.prCreation,
+    required this.changeGate,
     required this.busy,
     required this.status,
     required this.onRefresh,
     required this.onRun,
     required this.onCamera,
     required this.onVoice,
+    required this.onOpenFix,
+    required this.onOpenGovern,
     required this.voice,
     required this.initialLoading,
   });
 
   final OneOpsState? state;
+  final CodeContextState codeContext;
+  final DiagnosisState diagnosis;
+  final FixProposalState fixProposal;
+  final PrCreationState prCreation;
+  final ChangeGateState changeGate;
   final bool busy;
   final String status;
   final Future<void> Function() onRefresh;
   final Future<void> Function(Future<Map<String, dynamic>> Function()) onRun;
   final Future<void> Function() onCamera;
   final Future<void> Function() onVoice;
+  final VoidCallback onOpenFix;
+  final VoidCallback onOpenGovern;
   final String voice;
   final bool initialLoading;
 
@@ -310,11 +666,11 @@ class _CommandCenter extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         ScreenIntro(
-          kicker: 'Command Center',
-          title: active == null ? 'Standby, ready to catch the next incident' : 'Incident captured, control stays on phone',
+          kicker: 'OneOps',
+          title: active == null ? 'Ready for demo' : _heroTitle(active.status),
           body: active == null
-              ? 'Start the controlled demo incident. OneOps will show evidence, reasoning, verification and recovery gates.'
-              : 'OneOps has the capsule, the safe next action, and the proof chain in one place.',
+              ? 'Controlled incident inject karo. Evidence se solve karte hain.'
+              : active.summary,
           trailing: StatusBadge(label: active?.status ?? 'READY'),
         ),
         IncidentHeader(incident: active),
@@ -327,8 +683,8 @@ class _CommandCenter extends StatelessWidget {
         ),
         const SizedBox(height: 12),
         SectionPanel(
-          title: 'Right now',
-          subtitle: 'Kya toot raha hai, kya safe hai',
+          title: 'At a glance',
+          subtitle: '3-second status',
           child: Column(
             children: [
               MetricTile(
@@ -360,12 +716,12 @@ class _CommandCenter extends StatelessWidget {
           ),
         ),
         SectionPanel(
-          title: 'Workflow',
-          subtitle: 'Detect se recovery tak, step by step',
+          title: 'Journey',
+          subtitle: 'Detected se govern tak',
           child: WorkflowProgress(steps: state?.steps ?? const []),
         ),
         SectionPanel(
-          title: 'Recommended action',
+          title: 'Next best action',
           subtitle: _actionExplainer(active?.status ?? 'READY'),
           child: Wrap(
             spacing: 8,
@@ -376,7 +732,8 @@ class _CommandCenter extends StatelessWidget {
                 icon: _primaryIcon(active?.status ?? 'READY'),
                 primary: true,
                 loading: busy,
-                onPressed: busy ? null : () => _runPrimary(active?.status ?? 'READY'),
+                onPressed:
+                    busy ? null : () => _runPrimary(active?.status ?? 'READY'),
               ),
               ActionButton(
                 label: 'Capture',
@@ -401,12 +758,45 @@ class _CommandCenter extends StatelessWidget {
     );
   }
 
-  String _primaryAction(String status) {
+  String _heroTitle(String status) {
+    if (fixProposal.status == FixProposalStatus.received) {
+      return 'Fix ready hai';
+    }
+    if (diagnosis.status == DiagnosisStatus.received) {
+      return 'Cause mil gaya';
+    }
+    if (codeContext.status == CodeContextStatus.received) {
+      return 'Relevant code mil gaya';
+    }
     return switch (status) {
-      'READY' => 'Inject demo incident',
-      'DETECTED' => 'Investigate',
-      'INVESTIGATING' => 'Reproduce',
-      'REPRODUCING' => 'View result',
+      'DETECTED' => 'Incident aa gaya.',
+      'INVESTIGATING' => 'Proof collect karte hain.',
+      'REPRODUCING' => 'Sandbox check chal raha hai.',
+      'VERIFIED_FIX_READY' => 'Safe to review.',
+      'APPROVAL_REQUIRED' => 'Approval baaki hai.',
+      'RECOVERED' => 'Sab checks green hain.',
+      _ => 'Ready for demo',
+    };
+  }
+
+  String _primaryAction(String status) {
+    if (prCreation.status == PrCreationStatus.created ||
+        changeGate.status == ChangeGateStatus.evaluated) {
+      return 'Govern dekho';
+    }
+    if (fixProposal.status == FixProposalStatus.received &&
+        prCreation.status != PrCreationStatus.created) {
+      return 'Review fix';
+    }
+    if (codeContext.status == CodeContextStatus.received &&
+        fixProposal.status != FixProposalStatus.received) {
+      return 'Fix tab dekho';
+    }
+    return switch (status) {
+      'READY' => 'Inject incident',
+      'DETECTED' => 'Investigate karo',
+      'INVESTIGATING' => 'Reproduce karo',
+      'REPRODUCING' => 'Refresh status',
       'VERIFIED_FIX_READY' => 'Verify fix',
       'APPROVAL_REQUIRED' => 'Approve recovery',
       'RECOVERED' => 'View outcome',
@@ -415,6 +805,18 @@ class _CommandCenter extends StatelessWidget {
   }
 
   IconData _primaryIcon(String status) {
+    if (prCreation.status == PrCreationStatus.created ||
+        changeGate.status == ChangeGateStatus.evaluated) {
+      return Icons.verified_user_outlined;
+    }
+    if (fixProposal.status == FixProposalStatus.received &&
+        prCreation.status != PrCreationStatus.created) {
+      return Icons.rate_review_outlined;
+    }
+    if (codeContext.status == CodeContextStatus.received &&
+        fixProposal.status != FixProposalStatus.received) {
+      return Icons.construction_outlined;
+    }
     return switch (status) {
       'READY' => Icons.bug_report_outlined,
       'DETECTED' => Icons.search,
@@ -427,14 +829,26 @@ class _CommandCenter extends StatelessWidget {
   }
 
   String _actionExplainer(String status) {
+    if (changeGate.status == ChangeGateStatus.evaluated) {
+      return 'Governance result ready hai.';
+    }
+    if (prCreation.status == PrCreationStatus.created) {
+      return 'PR ban gaya. Gate evaluate karo.';
+    }
+    if (fixProposal.status == FixProposalStatus.received) {
+      return 'Fix ready hai. Human review ke liye PR banao.';
+    }
+    if (codeContext.status == CodeContextStatus.received) {
+      return 'Code + RAG + diagnosis chain chal chuki hai.';
+    }
     return switch (status) {
-      'READY' => 'Demo failure inject karo; live claims nahi.',
-      'DETECTED' => 'Evidence hai. Ab hypothesis rank karte hain.',
+      'READY' => 'Controlled demo incident inject karo.',
+      'DETECTED' => 'Evidence hai. Ab cause pakdo.',
       'INVESTIGATING' => 'Cause likely hai. Sandbox mein prove karo.',
       'REPRODUCING' => 'Duplicate run avoid karo; result wait karo.',
-      'VERIFIED_FIX_READY' => 'Fix rehearsal passed. Formal verify karo.',
-      'APPROVAL_REQUIRED' => 'Recovery tabhi jab approval complete ho.',
-      'RECOVERED' => 'Service restored. Memory mein learning save.',
+      'VERIFIED_FIX_READY' => 'Fix proof ready. Review path kholo.',
+      'APPROVAL_REQUIRED' => 'Human yes ke bina execute nahi hoga.',
+      'RECOVERED' => 'Service restored. Sab checks green hain.',
       _ => 'State sync karo.',
     };
   }
@@ -453,29 +867,40 @@ class _CommandCenter extends StatelessWidget {
 
   String _gateTitle(String status) {
     return switch (status) {
-      'APPROVAL_REQUIRED' => 'Recovery is blocked until approval',
-      'RECOVERED' => 'Health restored and learning recorded',
-      'VERIFIED_FIX_READY' => 'Fix proof is ready for review',
-      'REPRODUCING' => 'Sandbox run is active',
-      'INVESTIGATING' => 'Hypothesis is being ranked',
-      'DETECTED' => 'Incident Capsule is live',
+      'APPROVAL_REQUIRED' => 'Approval baaki hai',
+      'RECOVERED' => 'Recovery complete',
+      'VERIFIED_FIX_READY' => 'Fix proof ready',
+      'REPRODUCING' => 'Sandbox run active',
+      'INVESTIGATING' => 'Hypothesis rank ho raha hai',
+      'DETECTED' => 'Incident Capsule live',
       _ => 'No active incident',
     };
   }
 
   String _gateMessage(String status) {
     return switch (status) {
-      'APPROVAL_REQUIRED' => 'Verification passed. The app still asks for explicit human recovery approval.',
-      'RECOVERED' => 'Post-recovery checks passed. This incident can now become reusable memory.',
-      'VERIFIED_FIX_READY' => 'The failure was reproduced and the candidate recovery passed rehearsal.',
-      'REPRODUCING' => 'Duplicate execution is paused. Wait for Docker sandbox result.',
-      'INVESTIGATING' => 'Observed signals are being separated from inferred cause. No auto-fix claim.',
-      'DETECTED' => 'Evidence exists. Next step is correlation, not guessing.',
-      _ => 'Backend is reachable when shown online. Start only the controlled lab flow.',
+      'APPROVAL_REQUIRED' => 'Human approval ke bina kuch execute nahi hoga.',
+      'RECOVERED' => 'Post-recovery checks passed.',
+      'VERIFIED_FIX_READY' =>
+        'Failure reproduced, candidate fix rehearsal passed.',
+      'REPRODUCING' => 'Docker sandbox result ka wait karo.',
+      'INVESTIGATING' => 'Observed aur inferred alag rakhe gaye hain.',
+      'DETECTED' => 'Proof hai. Guess nahi.',
+      _ => 'Backend online ho to controlled lab flow start karo.',
     };
   }
 
   void _runPrimary(String status) {
+    if (prCreation.status == PrCreationStatus.created ||
+        changeGate.status == ChangeGateStatus.evaluated) {
+      onOpenGovern();
+      return;
+    }
+    if (codeContext.status == CodeContextStatus.received ||
+        fixProposal.status == FixProposalStatus.received) {
+      onOpenFix();
+      return;
+    }
     switch (status) {
       case 'READY':
         onRun(OneOpsApi.injectFailure);
@@ -507,6 +932,7 @@ class _IncidentsPage extends StatelessWidget {
     required this.onCancelCodeContext,
     required this.onRetryCodeContext,
     required this.onContinueToProposedFix,
+    required this.diagnosis,
   });
 
   final Incident? incident;
@@ -516,6 +942,7 @@ class _IncidentsPage extends StatelessWidget {
   final VoidCallback onCancelCodeContext;
   final VoidCallback onRetryCodeContext;
   final VoidCallback? onContinueToProposedFix;
+  final DiagnosisState diagnosis;
 
   @override
   Widget build(BuildContext context) {
@@ -525,27 +952,36 @@ class _IncidentsPage extends StatelessWidget {
       children: [
         ScreenIntro(
           kicker: 'Incident Capsule',
-          title: active == null ? 'No capsule yet' : '${active.id} has evidence and reasoning',
-          body: 'The capsule separates facts from inference so the developer can trust what OneOps is doing.',
+          title: active == null ? 'No capsule yet' : 'Incident aa gaya.',
+          body: active?.summary ?? 'Proof collect karte hain. Guess nahi.',
         ),
         IncidentHeader(incident: active),
         const SizedBox(height: 12),
+        SectionPanel(
+          title: 'Journey',
+          subtitle: 'Detected, evidence, code, diagnosis, fix, review',
+          child: WorkflowProgress(steps: active?.steps ?? const []),
+        ),
         SectionPanel(
           title: 'Incident Capsule',
           subtitle: 'Observed, inferred, retrieved, recommended',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _capsuleRow('OBSERVED', active?.summary ?? 'No incident captured.'),
-              _capsuleRow('INFERRED', active?.hypothesis ?? 'No hypothesis yet.'),
-              _capsuleRow('RETRIEVED', 'Similar verified incidents available after recovery.'),
-              _capsuleRow('RECOMMENDED', active?.experiment ?? 'Inject or capture an incident first.'),
+              _capsuleRow(
+                  'OBSERVED', active?.summary ?? 'No incident captured.'),
+              _capsuleRow(
+                  'INFERRED', active?.hypothesis ?? 'No hypothesis yet.'),
+              _capsuleRow('RETRIEVED',
+                  'Similar verified incidents available after recovery.'),
+              _capsuleRow('RECOMMENDED',
+                  active?.experiment ?? 'Inject or capture an incident first.'),
             ],
           ),
         ),
         SectionPanel(
           title: 'Evidence',
-          subtitle: 'Compact source cards, no log dump',
+          subtitle: 'Proof hai. Guess nahi.',
           child: Column(
             children: (active?.evidence ?? const ['No evidence yet.'])
                 .map((text) => EvidenceCard(text: text))
@@ -554,22 +990,24 @@ class _IncidentsPage extends StatelessWidget {
         ),
         SectionPanel(
           title: 'Investigation',
-          subtitle: 'AI output is guidance, not absolute truth',
+          subtitle: 'Guidance hai, absolute truth nahi',
           child: Column(
             children: [
               HypothesisCard(
                 label: 'LEADING HYPOTHESIS',
                 text: active?.hypothesis ?? 'Awaiting investigation.',
-                tone: const Color(0xFF7BC7C0),
+                tone: const Color(0xFF2F80ED),
               ),
               const SizedBox(height: 8),
               ConfidenceIndicator(value: active?.confidence ?? 0),
               const SizedBox(height: 8),
               HypothesisCard(
                 label: 'RECOMMENDED EXPERIMENT',
-                text: active?.experiment ?? 'Run investigation first.',
+                text: active?.experiment ?? 'Pehle investigate karo.',
                 tone: const Color(0xFFFFC857),
               ),
+              const SizedBox(height: 8),
+              DiagnosisPanel(state: diagnosis),
             ],
           ),
         ),
@@ -598,14 +1036,30 @@ class _IncidentsPage extends StatelessWidget {
       ),
     );
   }
-
 }
 
-class _KnowledgePage extends StatelessWidget {
-  const _KnowledgePage({required this.incident, required this.codeContext});
+class _FixPage extends StatelessWidget {
+  const _FixPage({
+    required this.incident,
+    required this.codeContext,
+    required this.ragContext,
+    required this.diagnosis,
+    required this.fixProposal,
+    required this.prCreation,
+    required this.onCreatePullRequest,
+    required this.onViewPullRequest,
+    required this.onContinueToChangeWorkflow,
+  });
 
   final Incident? incident;
   final CodeContextState codeContext;
+  final RagContextState ragContext;
+  final DiagnosisState diagnosis;
+  final FixProposalState fixProposal;
+  final PrCreationState prCreation;
+  final VoidCallback onCreatePullRequest;
+  final VoidCallback onViewPullRequest;
+  final VoidCallback onContinueToChangeWorkflow;
 
   @override
   Widget build(BuildContext context) {
@@ -619,121 +1073,160 @@ class _KnowledgePage extends StatelessWidget {
       padding: const EdgeInsets.all(16),
       children: [
         ScreenIntro(
-          kicker: 'Proof chain',
-          title: codeReady ? 'Code context attached to fix review' : 'Code context required before fix review',
+          kicker: 'Fix',
+          title: codeReady ? 'Fix ready hone wala hai' : 'Code context chahiye',
           body: codeReady
-              ? 'The UI makes proof visible before it allows consequential action.'
-              : 'Use Ask-for-Code in Incidents to request the smallest relevant file context first.',
+              ? 'Observed evidence, GitHub source, RAG aur diagnosis ek saath.'
+              : 'Incident tab se affected file request karo.',
         ),
         SectionPanel(
-          title: 'Proposed fix',
-          subtitle: 'Review first, recover later',
+          title: 'Inputs',
+          subtitle: 'Observed, retrieved, inferred',
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Pin dependency/config mismatch in Green API middleware',
-                style: TextStyle(fontWeight: FontWeight.w900),
+              _knowledgeRow(
+                  'OBSERVED', active?.summary ?? 'No incident captured.'),
+              const SizedBox(height: 8),
+              _knowledgeRow(
+                'CODE CONTEXT',
+                codeContext.result?.path ??
+                    'Waiting for GitHub source context.',
               ),
               const SizedBox(height: 8),
-              CodeDiffCard(ready: ready),
-              const SizedBox(height: 10),
-              StatusBadge(
-                label: codeReady ? 'CODE CONTEXT ATTACHED' : 'WAITING FOR CODE CONTEXT',
+              _knowledgeRow(
+                'RETRIEVED KNOWLEDGE',
+                ragContext.status == RagContextStatus.received
+                    ? '${ragContext.results.length} supporting sources returned.'
+                    : 'Waiting for local retrieval.',
               ),
             ],
           ),
         ),
+        RagContextPanel(state: ragContext),
         SectionPanel(
-          title: 'Build / execution',
-          subtitle: 'Progress without dumping noisy logs',
-          child: BuildProgress(status: active?.status ?? 'READY'),
-        ),
-        SectionPanel(
-          title: 'Replay & verification',
-          subtitle: 'Proof before recovery',
-          child: Column(
-            children: [
-              const ReplayTrace(title: 'ORIGINAL FAILURE TRACE', fixed: false),
-              const SizedBox(height: 8),
-              ReplayTrace(title: 'FIXED BUILD REPLAY', fixed: ready),
-              const SizedBox(height: 10),
-              StatusBadge(
-                label: ready ? 'Health + functional + regression passed' : 'Verification pending',
-              ),
-            ],
+          title: 'Fix ready hai',
+          subtitle: 'Review first. Deploy shortcut nahi.',
+          child: FixProposalPanel(
+            state: fixProposal,
+            diagnosis: diagnosis.result,
+            fallbackReady: ready,
+            prCreation: prCreation,
+            onCreatePullRequest: onCreatePullRequest,
+            onViewPullRequest: onViewPullRequest,
+            onContinueToChangeWorkflow: onContinueToChangeWorkflow,
           ),
-        ),
-        SectionPanel(
-          title: 'Change & approval',
-          subtitle: 'Enterprise gates, clearly visible',
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              ApprovalChecklist(status: active?.status ?? 'READY'),
-              const SizedBox(height: 6),
-              StatusBadge(
-                label: active?.status == 'RECOVERED' ? 'DEPLOYMENT COMPLETE' : 'DEPLOYMENT BLOCKED',
-              ),
-            ],
-          ),
-        ),
-        SectionPanel(
-          title: 'Incident memory',
-          subtitle: 'Verified learnings for future RAG',
-          child: IncidentMemoryCard(incident: active),
         ),
       ],
     );
   }
+
+  Widget _knowledgeRow(String label, String text) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          StatusBadge(label: label),
+          const SizedBox(height: 6),
+          Text(text, style: const TextStyle(height: 1.35)),
+        ],
+      ),
+    );
+  }
 }
 
-class _SettingsPage extends StatelessWidget {
-  const _SettingsPage({required this.state, required this.status});
+class _GovernPage extends StatelessWidget {
+  const _GovernPage({
+    required this.incident,
+    required this.prCreation,
+    required this.changeGate,
+    required this.onEvaluateChangeGate,
+    required this.onEvaluateDemoApprovalGate,
+  });
 
-  final OneOpsState? state;
-  final String status;
+  final Incident? incident;
+  final PrCreationState prCreation;
+  final ChangeGateState changeGate;
+  final VoidCallback onEvaluateChangeGate;
+  final VoidCallback onEvaluateDemoApprovalGate;
 
   @override
   Widget build(BuildContext context) {
-    final lab = state?.lab ?? const {};
     return ListView(
       padding: const EdgeInsets.all(16),
       children: [
-        const ScreenIntro(
-          kicker: 'Device & bridge',
-          title: 'Current phone controls, workstation executes',
-          body: 'Hardware-specific claims stay as placeholders until the target iQOO device is available.',
+        ScreenIntro(
+          kicker: 'Govern',
+          title: _title,
+          body: 'Fix ready hai. Human approval ke bina kuch execute nahi hoga.',
+          trailing:
+              StatusBadge(label: changeGate.result?.finalState ?? 'LOCKED'),
         ),
         SectionPanel(
-          title: 'Connections',
-          subtitle: 'Phone is control surface; workstation executes',
+          title: 'Change governance',
+          subtitle: 'GitHub facts alag, OneOps policy alag',
           child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              MetricTile(label: 'Backend', value: status == 'Ready' ? 'Connected' : status, icon: Icons.dns),
-              const SizedBox(height: 8),
-              MetricTile(label: 'Blue', value: lab['blue']?.toString() ?? 'unknown', icon: Icons.circle_outlined),
-              const SizedBox(height: 8),
-              MetricTile(label: 'Green', value: lab['green']?.toString() ?? 'unknown', icon: Icons.circle),
-              const SizedBox(height: 8),
-              MetricTile(label: 'Proxy', value: lab['proxy']?.toString() ?? 'unknown', icon: Icons.hub_outlined),
+              ChangeGatePanel(
+                state: changeGate,
+                onEvaluate: onEvaluateChangeGate,
+                onDemoApproval: onEvaluateDemoApprovalGate,
+              ),
             ],
           ),
         ),
         SectionPanel(
-          title: 'iQOO readiness',
-          subtitle: 'Placeholders only, no fake hardware claims',
-          child: const Column(
+          title: 'PR card',
+          subtitle: 'Actual GitHub result jab available ho',
+          child: Column(
             children: [
-              MetricTile(label: 'Local AI', value: 'Planned adapter', icon: Icons.memory_outlined),
-              SizedBox(height: 8),
-              MetricTile(label: 'NPU', value: 'Awaiting target device', icon: Icons.developer_board_outlined),
-              SizedBox(height: 8),
-              MetricTile(label: 'Office Kit', value: 'Execution bridge status placeholder', icon: Icons.cable),
+              MetricTile(
+                label: 'Pull request',
+                value: prCreation.result == null
+                    ? 'PR pending'
+                    : '#${prCreation.result!.prNumber}',
+                icon: Icons.rate_review_outlined,
+              ),
+              const SizedBox(height: 8),
+              MetricTile(
+                label: 'Branch',
+                value: prCreation.result?.branch ?? 'Waiting',
+                icon: Icons.account_tree_outlined,
+              ),
+              const SizedBox(height: 8),
+              MetricTile(
+                label: 'Target',
+                value: prCreation.result?.base ?? 'main',
+                icon: Icons.merge_type_outlined,
+              ),
             ],
+          ),
+        ),
+        SectionPanel(
+          title: 'Execution lock',
+          subtitle: 'No bypass, no push to main',
+          child: GateBanner(
+            status: incident?.status == 'RECOVERED' ? 'RECOVERED' : 'LOCKED',
+            title: incident?.status == 'RECOVERED'
+                ? 'Recovery complete'
+                : 'Approval baaki hai',
+            message: 'Human yes ke bina execute nahi hoga.',
+            icon: Icons.lock_outline,
           ),
         ),
       ],
     );
+  }
+
+  String get _title {
+    if (changeGate.result?.eligible == true) {
+      return 'Safe to proceed';
+    }
+    if (prCreation.status == PrCreationStatus.created) {
+      return 'Approval baaki hai';
+    }
+    return 'Execution locked';
   }
 }

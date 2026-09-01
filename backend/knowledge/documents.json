@@ -1,0 +1,42 @@
+[
+  {
+    "source": "runbook/dependency-configuration-regression.md",
+    "title": "Dependency And Configuration Regression Triage",
+    "body": "A dependency or configuration regression is likely when a service starts failing immediately after a deployment while infrastructure load remains normal. Compare the promoted revision against the last known-good release, isolate changed package versions and runtime flags, and reproduce the failing path with the smallest service slice. Treat stack traces, deployment timing, and health check drift as observed evidence. Prefer pinning or reverting the changed dependency/configuration before broader refactors."
+  },
+  {
+    "source": "runbook/runtime-middleware-failure.md",
+    "title": "Runtime Middleware Failure Checklist",
+    "body": "Middleware failures often appear as TypeError, null reference, missing global object, callback timing, or request/response parsing errors. For browser script widgets and request middleware, verify initialization order, environment guards, cleanup on unmount, retry behavior, and whether external scripts or plugins are available before use. The safest mitigation is to guard the failing path, preserve user-facing behavior, and add a narrow regression check for the failing component."
+  },
+  {
+    "source": "runbook/deployment-rollback.md",
+    "title": "Deployment Rollback Runbook",
+    "body": "Rollback is appropriate for a confirmed deployment regression causing elevated 5xx, latency, crash loops, or user-visible outage. Confirm the last known-good version, pause further rollout, move traffic back to healthy Blue, and verify health checks and one functional request before closing the incident. Keep rollback auditable: record incident id, operator approval, deployed revision, verification output, and post-rollback monitoring window."
+  },
+  {
+    "source": "runbook/permission-failure.md",
+    "title": "Permission Failure Triage",
+    "body": "Permission failures are suggested by 401, 403, denied scope, missing token, expired credential, or repository access errors. Never log secrets or Authorization headers. Log only status code, repository, path, ref, and sanitized provider error text. Validate the token has read access to the target repository and that the requested branch and path exist."
+  },
+  {
+    "source": "runbook/service-outage.md",
+    "title": "Service Outage Response",
+    "body": "For a service outage, separate observed signals from inference. Capture impact, start time, affected endpoints, error rate, latency, deployment events, and dependency health. Stabilize first with rollback, traffic shift, or feature disablement. Only proceed to recovery actions after reproduction or strong correlation plus explicit human approval."
+  },
+  {
+    "source": "incidents/verified-2026-08-17-translate-widget.md",
+    "title": "Verified Incident: Translate Widget Script Callback Race",
+    "body": "A Green web deployment caused the translation widget to fail on slower devices. The component loaded a third-party script and initialized before the callback populated the global translate object. The verified fix guarded window.google.translate.TranslateElement, reused a single script id, and cleaned the container on unmount. Recovery was verified by loading the page twice and switching languages after a cold cache."
+  },
+  {
+    "source": "incidents/verified-2026-08-20-github-path-prefix.md",
+    "title": "Verified Incident: GitHub Path Prefix Duplicated",
+    "body": "Code context retrieval returned not found even though the file existed. The component mapping contained a full repository path while ONEOPS_GITHUB_PATH_PREFIX also supplied the same directory. The effective path became duplicated. The fix was to map the component to the file name and let the configured path prefix resolve the final GitHub path."
+  },
+  {
+    "source": "incidents/verified-2026-08-22-green-runtime-config.md",
+    "title": "Verified Incident: Green Runtime Config Drift",
+    "body": "After Green promotion, API health checks degraded while Blue remained healthy. Logs showed runtime errors in a request-adjacent component after dependency resolution. The team reproduced the failure in an isolated compose profile, rolled traffic back to Blue, and recorded the changed configuration key with the incident capsule for future retrieval."
+  }
+]
